@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../bloom_api"
+		},
+		{
+			"path": "../../../../../Applications/XAMPP/xamppfiles/htdocs/bloomoryAI-application"
+		}
+	],
+	"settings": {}
+}
