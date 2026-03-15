@@ -14,71 +14,71 @@ class GiftData {
   /// This is intentionally mutable so the "Add Gift" modal can append new demo
   /// products without needing a backend yet.
   static final List<GiftProduct> products = [
-    GiftProduct(
+    const GiftProduct(
       id: 'pfc_heart',
       category: 'photo_frame_collages',
       title: 'Romantic Heart Collage',
       price: 69,
       rating: 4.8,
-      images: const [_img1],
+      images: [_img1],
     ),
-    GiftProduct(
+    const GiftProduct(
       id: 'pfc_wood',
       category: 'photo_frame_collages',
       title: 'Elegant Wooden Collage',
       price: 69,
       rating: 4.7,
-      images: const [_img2],
+      images: [_img2],
     ),
-    GiftProduct(
+    const GiftProduct(
       id: 'pfc_travel',
       category: 'photo_frame_collages',
       title: 'Travel Memories Collage',
       price: 79,
       rating: 4.6,
-      images: const [_img3],
+      images: [_img3],
     ),
-    GiftProduct(
+    const GiftProduct(
       id: 'pfc_anniversary',
       category: 'photo_frame_collages',
       title: 'Anniversary Heart Collage',
       price: 69,
       rating: 4.9,
-      images: const [_img4],
+      images: [_img4],
     ),
 
-    GiftProduct(
+    const GiftProduct(
       id: 'cpa_soft',
       category: 'custom_photo_albums',
       title: 'Classic Softcover Album',
       price: 59,
       rating: 4.6,
-      images: const [_img1],
+      images: [_img1],
     ),
-    GiftProduct(
+    const GiftProduct(
       id: 'cpa_hard',
       category: 'custom_photo_albums',
       title: 'Premium Hardcover Album',
       price: 89,
       rating: 4.8,
-      images: const [_img2],
+      images: [_img2],
     ),
 
-    GiftProduct(
+    const GiftProduct(
       id: 'ek_nameplate',
       category: 'engraved_keepsakes',
       title: 'Engraved Nameplate',
       price: 49,
       rating: 4.5,
-      images: const [_img3],
+      images: [_img3],
     ),
-    GiftProduct(
+    const GiftProduct(
       id: 'ek_keychain',
       category: 'engraved_keepsakes',
       title: 'Engraved Keychain',
       price: 29,
       rating: 4.4,
-      images: const [_img4],
+      images: [_img4],
     ),
   ];
 

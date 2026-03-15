@@ -205,12 +205,12 @@ class _ChatAiBottomSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  TabBar(
+                  const TabBar(
                     indicatorSize: TabBarIndicatorSize.tab,
                     indicatorColor: Colors.white,
                     labelColor: Colors.white,
                     unselectedLabelColor: Colors.white70,
-                    tabs: const [
+                    tabs: [
                       Tab(text: 'Chat'),
                       Tab(text: 'AI Tools'),
                     ],
@@ -672,12 +672,12 @@ class _SearchBar extends StatelessWidget {
           InkWell(
             onTap: onCreateAlbum,
             borderRadius: BorderRadius.circular(18),
-            child: GlassContainer(
+            child: const GlassContainer(
               radius: 18,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Icon(Icons.add, color: Colors.white70, size: 18),
                   SizedBox(width: 6),
                   Text('Create Album',
@@ -690,10 +690,10 @@ class _SearchBar extends StatelessWidget {
           InkWell(
             onTap: onFilterTap,
             borderRadius: BorderRadius.circular(18),
-            child: GlassContainer(
+            child: const GlassContainer(
               radius: 18,
-              padding: const EdgeInsets.all(10),
-              child: const Icon(Icons.tune, color: Colors.white70, size: 18),
+              padding: EdgeInsets.all(10),
+              child: Icon(Icons.tune, color: Colors.white70, size: 18),
             ),
           ),
 
@@ -702,10 +702,10 @@ class _SearchBar extends StatelessWidget {
           InkWell(
             onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
             borderRadius: BorderRadius.circular(18),
-            child: GlassContainer(
+            child: const GlassContainer(
               radius: 18,
-              padding: const EdgeInsets.all(10),
-              child: const Icon(Icons.person_outline, color: Colors.white70, size: 18),
+              padding: EdgeInsets.all(10),
+              child: Icon(Icons.person_outline, color: Colors.white70, size: 18),
             ),
           ),
         ],

@@ -79,12 +79,12 @@ class _ServiceBookingScreenState extends State<ServiceBookingScreen> {
                         builder: (_) => AddServiceDialog(onAdded: () {}),
                       );
                     },
-                    child: GlassContainer(
+                    child: const GlassContainer(
                       radius: 18,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
+                        children: [
                           Icon(Icons.add, color: Colors.white70, size: 18),
                           SizedBox(width: 6),
                           Text('Add Service', style: TextStyle(color: Colors.white70)),
@@ -391,13 +391,13 @@ class _WeekRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Mirrors the "23 24 25 26 24 25 26 27" style strip from the mock.
-    final days = const [23, 24, 25, 26, 24, 25, 26, 27];
+    const days = [23, 24, 25, 26, 24, 25, 26, 27];
 
     return Column(
       children: [
-        Row(
+        const Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
+          children: [
             _Dow('S'),
             _Dow('M'),
             _Dow('T'),

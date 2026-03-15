@@ -57,7 +57,7 @@ class _VaultSecurityTrustScreenState extends State<VaultSecurityTrustScreen> {
                     trailing: Switch(
                       value: e2ee,
                       onChanged: (v) => setState(() => e2ee = v),
-                      activeColor: Colors.white.withOpacity(0.9),
+                      activeThumbColor: Colors.white.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -151,7 +151,7 @@ class _ToggleTile extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: Colors.white.withOpacity(0.9),
+            activeThumbColor: Colors.white.withOpacity(0.9),
           ),
         ],
       ),

@@ -52,15 +52,15 @@ class ServiceDestinationDetailScreen extends StatelessWidget {
                       showDialog(
                         context: context,
                         barrierColor: Colors.black54,
-                        builder: (_) => AddServiceDialog(onAdded: _noop),
+                        builder: (_) => const AddServiceDialog(onAdded: _noop),
                       );
                     },
-                    child: GlassContainer(
+                    child: const GlassContainer(
                       radius: 18,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
+                        children: [
                           Icon(Icons.add, color: Colors.white70, size: 18),
                           SizedBox(width: 6),
                           Text('Add Service', style: TextStyle(color: Colors.white70)),

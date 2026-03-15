@@ -70,13 +70,13 @@ class _ProfileHeader extends StatelessWidget {
     return Center(
       child: Column(
         children: [
-          GlassContainer(
+          const GlassContainer(
             radius: 44,
-            padding: const EdgeInsets.all(3),
+            padding: EdgeInsets.all(3),
             child: CircleAvatar(
               radius: 40,
               backgroundColor: Colors.white10,
-              child: const Icon(Icons.person, color: Colors.white, size: 36),
+              child: Icon(Icons.person, color: Colors.white, size: 36),
             ),
           ),
           const SizedBox(height: 14),
@@ -91,9 +91,9 @@ class _ProfileHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Row(
+          const Row(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Icon(Icons.location_on_outlined, size: 16, color: Colors.white60),
               SizedBox(width: 6),
               Text(
@@ -115,11 +115,11 @@ class _StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GlassContainer(
+    return const GlassContainer(
       radius: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       child: Row(
-        children: const [
+        children: [
           _StatItem(value: '6,237', label: 'Memories'),
           _Divider(),
           _StatItem(value: '256', label: 'Vaulted Items'),
@@ -199,8 +199,8 @@ class _SectionHeader extends StatelessWidget {
         InkWell(
           onTap: onViewAll,
           borderRadius: BorderRadius.circular(12),
-          child: Row(
-            children: const [
+          child: const Row(
+            children: [
               Text('View All', style: TextStyle(color: Colors.white60)),
               SizedBox(width: 4),
               Icon(Icons.chevron_right, size: 18, color: Colors.white54),

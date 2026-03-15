@@ -101,12 +101,12 @@ class _GiftCheckoutScreenState extends State<GiftCheckoutScreen> {
                       arguments: {'id': product.id},
                     );
                   },
-                  child: GlassContainer(
+                  child: const GlassContainer(
                     radius: 22,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: const [
+                      children: [
                         Icon(Icons.edit, color: Colors.white70, size: 18),
                         SizedBox(width: 8),
                         Text('Edit Gift  >', style: TextStyle(color: Colors.white70)),
@@ -162,8 +162,8 @@ class _GiftCheckoutScreenState extends State<GiftCheckoutScreen> {
                     ),
                     if (_applied) ...[
                       const SizedBox(height: 10),
-                      Row(
-                        children: const [
+                      const Row(
+                        children: [
                           Icon(Icons.check_circle, color: Color(0xFF67E3B1), size: 18),
                           SizedBox(width: 8),
                           Text(
@@ -178,9 +178,9 @@ class _GiftCheckoutScreenState extends State<GiftCheckoutScreen> {
                     const SizedBox(height: 14),
                     const Divider(color: Colors.white24),
                     const SizedBox(height: 10),
-                    Row(
+                    const Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
+                      children: [
                         Text(
                           'Shipping Information',
                           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),

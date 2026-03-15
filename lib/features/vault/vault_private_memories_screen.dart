@@ -10,7 +10,7 @@ class VaultPrivateMemoriesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    const items = [
       {
         'title': 'Anniversary Moments',
         'subtitle': '12 photos • 2 videos',

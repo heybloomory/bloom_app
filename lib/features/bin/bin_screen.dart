@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../layout/main_app_shell.dart';
+import '../../routes/app_routes.dart';
 
 class BinScreen extends StatelessWidget {
   const BinScreen({super.key});
@@ -7,6 +8,7 @@ class BinScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MainAppShell(
+      currentRoute: AppRoutes.dashboard,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -27,8 +29,8 @@ class BinScreen extends StatelessWidget {
                 color: Colors.orange.shade50,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Row(
-                children: const [
+              child: const Row(
+                children: [
                   Icon(Icons.warning_amber_rounded, color: Colors.orange),
                   SizedBox(width: 8),
                   Expanded(
@@ -93,7 +95,7 @@ class _BinItemCard extends StatelessWidget {
           ),
 
           // Action Overlay
-          Positioned(
+          const Positioned(
             bottom: 8,
             left: 8,
             right: 8,
@@ -106,7 +108,7 @@ class _BinItemCard extends StatelessWidget {
                     color: Colors.green,
                   ),
                 ),
-                const SizedBox(width: 6),
+                SizedBox(width: 6),
                 Expanded(
                   child: _BinActionButton(
                     icon: Icons.delete_forever,

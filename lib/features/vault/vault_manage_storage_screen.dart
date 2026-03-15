@@ -69,7 +69,7 @@ class _VaultManageStorageScreenState extends State<VaultManageStorageScreen> {
                             Switch(
                               value: vaultStorageOn,
                               onChanged: (v) => setState(() => vaultStorageOn = v),
-                              activeColor: Colors.white.withOpacity(0.9),
+                              activeThumbColor: Colors.white.withOpacity(0.9),
                             ),
                           ],
                         ),

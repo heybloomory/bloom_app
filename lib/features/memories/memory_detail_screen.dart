@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../layout/main_app_shell.dart';
+import '../../routes/app_routes.dart';
 
 class MemoryDetailScreen extends StatelessWidget {
   const MemoryDetailScreen({super.key});
@@ -7,6 +8,7 @@ class MemoryDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MainAppShell(
+      currentRoute: AppRoutes.sharedMemories,
       child: Column(
         children: [
           // Media Area
@@ -36,28 +38,28 @@ class MemoryDetailScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: Column(
+            child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Memory Title',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
+                SizedBox(height: 8),
+                Text(
                   'This is a beautiful moment captured during the event.',
                   style: TextStyle(color: Colors.grey),
                 ),
 
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
 
                 // Actions
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: const [
+                  children: [
                     _ActionButton(icon: Icons.favorite_border, label: 'Like'),
                     _ActionButton(icon: Icons.share, label: 'Share'),
                     _ActionButton(icon: Icons.delete_outline, label: 'Delete'),

@@ -200,12 +200,12 @@ class _ServiceDestinationScreenState extends State<ServiceDestinationScreen> {
                   const Spacer(),
                   GestureDetector(
                     onTap: _openAddService,
-                    child: GlassContainer(
+                    child: const GlassContainer(
                       radius: 18,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
+                        children: [
                           Icon(Icons.add, color: Colors.white70, size: 18),
                           SizedBox(width: 6),
                           Text('Add Service', style: TextStyle(color: Colors.white70)),

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../layout/main_app_shell.dart';
+import '../../routes/app_routes.dart';
 
-class DashboardScreen extends StatelessWidget {
-  const DashboardScreen({super.key});
+class EventsScreen extends StatelessWidget {
+  const EventsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MainAppShell(
+      currentRoute: AppRoutes.dashboard,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -23,8 +25,8 @@ class DashboardScreen extends StatelessWidget {
             const SizedBox(height: 24),
 
             // Stats row
-            Row(
-              children: const [
+            const Row(
+              children: [
                 _StatCard(title: 'Albums', value: '12'),
                 SizedBox(width: 12),
                 _StatCard(title: 'Memories', value: '248'),

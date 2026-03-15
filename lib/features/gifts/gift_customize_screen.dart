@@ -35,9 +35,9 @@ class GiftCustomizeScreen extends StatelessWidget {
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
                     onPressed: () => Navigator.pop(context),
                   ),
-                  Expanded(
+                  const Expanded(
                     child: Column(
-                      children: const [
+                      children: [
                         Text(
                           'Customize Gift',
                           textAlign: TextAlign.center,
@@ -89,11 +89,11 @@ class GiftCustomizeScreen extends StatelessWidget {
                     const SizedBox(height: 8),
                     const Text('From  Aditya', style: TextStyle(color: Colors.white70)),
                     const SizedBox(height: 12),
-                    GlassContainer(
+                    const GlassContainer(
                       radius: 16,
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       child: Row(
-                        children: const [
+                        children: [
                           Expanded(
                             child: Text(
                               'A keepsake of our love story',
@@ -107,8 +107,8 @@ class GiftCustomizeScreen extends StatelessWidget {
                     const SizedBox(height: 10),
                     const Text('#OurLoveStory  💗', style: TextStyle(color: Colors.white70)),
                     const SizedBox(height: 16),
-                    _ToolsRow(
-                      tools: const [
+                    const _ToolsRow(
+                      tools: [
                         _Tool('Replace', Icons.image),
                         _Tool('Text', Icons.text_fields),
                         _Tool('Crop', Icons.crop),

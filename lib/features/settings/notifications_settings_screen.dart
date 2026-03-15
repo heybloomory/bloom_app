@@ -75,10 +75,10 @@ class _NotificationsSettingsScreenState extends State<NotificationsSettingsScree
               onChanged: appNotifications ? (v) => setState(() => marketing = v) : null,
             ),
             const SizedBox(height: 14),
-            GlassContainer(
+            const GlassContainer(
               radius: 18,
-              padding: const EdgeInsets.all(14),
-              child: const Text(
+              padding: EdgeInsets.all(14),
+              child: Text(
                 'This is a UI page (demo). Connect these toggles to your backend preferences later.',
                 style: TextStyle(color: Colors.white70, height: 1.35),
               ),
@@ -138,7 +138,7 @@ class _ToggleTile extends StatelessWidget {
             Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: Colors.white,
+              activeThumbColor: Colors.white,
             ),
           ],
         ),

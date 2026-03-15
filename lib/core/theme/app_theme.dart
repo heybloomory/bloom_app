@@ -25,7 +25,7 @@ class AppTheme {
       primary: primary,
       secondary: primary,
       surface: surface,
-      surfaceVariant: surfaceVariant,
+      surfaceContainerHighest: surfaceVariant,
       onPrimary: Colors.white,
       onSurface: textPrimary,
     ),
@@ -39,8 +39,7 @@ class AppTheme {
       foregroundColor: textPrimary,
     ),
 
-cardTheme: CardTheme(
-// cardTheme: CardThemeData(
+cardTheme: CardThemeData(
   elevation: 2,
   shape: RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(16),

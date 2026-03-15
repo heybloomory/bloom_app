@@ -77,35 +77,35 @@ class ServiceCatalog {
 
   /// Mutable in-memory catalog (so "Add Service" can work without a backend).
   static final List<ServiceCategory> categories = [
-    ServiceCategory(
+    const ServiceCategory(
       id: 'photographers',
       title: 'Photographers',
       subtitle: 'Book a shoot',
       imageAsset: sampleImage,
       route: AppRoutes.serviceDestination,
     ),
-    ServiceCategory(
+    const ServiceCategory(
       id: 'destination',
       title: 'Destination',
       subtitle: 'Spot for Shoot',
       imageAsset: sampleImage,
       route: AppRoutes.serviceDestination,
     ),
-    ServiceCategory(
+    const ServiceCategory(
       id: 'vacation',
       title: 'Trips & Vacations',
       subtitle: 'Plan your getaway',
       imageAsset: sampleImage,
       route: AppRoutes.serviceDestination,
     ),
-    ServiceCategory(
+    const ServiceCategory(
       id: 'restaurant',
       title: 'Restaurants',
       subtitle: 'Dine & reserve',
       imageAsset: sampleImage,
       route: AppRoutes.serviceDestination,
     ),
-    ServiceCategory(
+    const ServiceCategory(
       id: 'beauty',
       title: 'Beauty & Wellness',
       subtitle: 'Spa, salon, more',
@@ -115,7 +115,7 @@ class ServiceCatalog {
   ];
 
   static final List<DestinationService> destinations = [
-    DestinationService(
+    const DestinationService(
       id: 'paris_photo_tour',
       city: 'Paris',
       title: 'Paris Photo Tour',
@@ -124,14 +124,14 @@ class ServiceCatalog {
       rating: 4.9,
       reviews: 832,
       heroImageAsset: sampleImage,
-      spots: const [
+      spots: [
         ServiceSpot(id: 'pont', title: 'Pont de Bir-Hakeim', imageAsset: sampleImage),
         ServiceSpot(id: 'eiffel', title: 'Eiffel Tower', imageAsset: sampleImage),
         ServiceSpot(id: 'louvre', title: 'Louvre Museum', imageAsset: sampleImage),
         ServiceSpot(id: 'mont', title: 'Montmartre', imageAsset: sampleImage),
         ServiceSpot(id: 'sacre', title: 'Sacré-Cœur', imageAsset: sampleImage),
       ],
-      photographers: const [
+      photographers: [
         ServicePhotographer(
           id: 'alex_moreau',
           name: 'Alex Moreau',

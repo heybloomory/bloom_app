@@ -105,7 +105,7 @@ class _AddLearnCourseDialogState extends State<AddLearnCourseDialog> {
                         children: [
                           _fieldLabel('Category'),
                           DropdownButtonFormField<String>(
-                            value: _category,
+                            initialValue: _category,
                             dropdownColor: const Color(0xFF1E1E1E),
                             style: const TextStyle(color: Colors.white),
                             decoration: _inputDecoration('Category'),
@@ -124,7 +124,7 @@ class _AddLearnCourseDialogState extends State<AddLearnCourseDialog> {
                         children: [
                           _fieldLabel('Level'),
                           DropdownButtonFormField<String>(
-                            value: _level,
+                            initialValue: _level,
                             dropdownColor: const Color(0xFF1E1E1E),
                             style: const TextStyle(color: Colors.white),
                             decoration: _inputDecoration('Level'),

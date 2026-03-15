@@ -105,14 +105,14 @@ class GiftProductScreen extends StatelessWidget {
                       style: TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: 12),
-                    GlassContainer(
+                    const GlassContainer(
                       radius: 16,
-                      padding: const EdgeInsets.symmetric(
+                      padding: EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 12,
                       ),
                       child: Row(
-                        children: const [
+                        children: [
                           Expanded(
                             child: Text(
                               'A keepsake of our love story',

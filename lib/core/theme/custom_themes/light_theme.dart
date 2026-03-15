@@ -5,7 +5,7 @@ final ThemeData lightThemeData = ThemeData(
   primaryColor: Colors.blue,
   scaffoldBackgroundColor: Colors.white,
   appBarTheme: const AppBarTheme(
-    color: Colors.blue,
+    backgroundColor: Colors.blue,
     iconTheme: IconThemeData(color: Colors.white),
   ),
   colorScheme: const ColorScheme.light(

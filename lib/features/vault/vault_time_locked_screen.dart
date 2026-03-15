@@ -10,7 +10,7 @@ class VaultTimeLockedScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
+    const items = [
       {
         'title': 'Open when Leo turns 18',
         'date': 'June 7, 2030',

@@ -26,7 +26,7 @@ class _AddServiceDialogState extends State<AddServiceDialog> {
   final _photographerCtrl = TextEditingController(text: 'Photographer Name');
 
   String _categoryId = ServiceCatalog.categories.first.id;
-  String _heroAsset = ServiceCatalog.sampleImage;
+  final String _heroAsset = ServiceCatalog.sampleImage;
 
   @override
   void dispose() {
@@ -174,7 +174,7 @@ class _AddServiceDialogState extends State<AddServiceDialog> {
                 const Text('Category', style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<String>(
-                  value: _categoryId,
+                  initialValue: _categoryId,
                   dropdownColor: const Color(0xFF1A1A1A),
                   decoration: _dec('Select category'),
                   items: ServiceCatalog.categories

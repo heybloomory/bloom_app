@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../layout/main_app_shell.dart';
+import '../../routes/app_routes.dart';
 
 class MemoryListingScreen extends StatelessWidget {
   const MemoryListingScreen({super.key});
@@ -7,6 +8,7 @@ class MemoryListingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MainAppShell(
+      currentRoute: AppRoutes.dashboard,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

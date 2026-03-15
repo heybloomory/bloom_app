@@ -449,11 +449,11 @@ class _ProductCard extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Center(
+            const Center(
               child: GlassContainer(
                 radius: 20,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: const Text('Create Gift', style: TextStyle(color: Colors.white)),
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Text('Create Gift', style: TextStyle(color: Colors.white)),
               ),
             ),
           ],

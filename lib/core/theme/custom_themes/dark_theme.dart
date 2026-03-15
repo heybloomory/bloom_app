@@ -17,7 +17,7 @@ final ThemeData darkThemeData = ThemeData(
   primaryColor: primaryDark,
   scaffoldBackgroundColor: primaryDark,
   appBarTheme: const AppBarTheme(
-    color: primaryLight,
+    backgroundColor: primaryLight,
     iconTheme: IconThemeData(color: Colors.white),
   ),
   colorScheme: const ColorScheme.dark(

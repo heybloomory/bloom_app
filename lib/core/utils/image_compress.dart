@@ -42,6 +42,20 @@ class ImageCompress {
     }
   }
 
+  /// Compress image for upload (convenience for photo_sync_service).
+  static Future<Uint8List> compressForUpload(
+    Uint8List input, {
+    int quality = 75,
+    int? maxWidth,
+  }) async {
+    return compressToJpeg(
+      input,
+      quality: quality,
+      minWidth: maxWidth,
+      minHeight: maxWidth != null ? null : 0,
+    );
+  }
+
   /// Generate a small thumbnail JPEG.
   ///
   /// Default aims for something like ~300x200 while preserving aspect ratio.

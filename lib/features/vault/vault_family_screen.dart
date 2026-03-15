@@ -16,10 +16,10 @@ class _VaultFamilyScreenState extends State<VaultFamilyScreen> {
   bool _permissionsEnabled = true;
 
   final List<_FamilyMember> _members = [
-    _FamilyMember(name: 'Emma Stevens', role: 'Permissions', action: 'Owner'),
-    _FamilyMember(name: 'Adam', role: 'Memories', action: 'Add Memories'),
-    _FamilyMember(name: 'Sophie', role: 'Memories', action: 'View Only'),
-    _FamilyMember(name: 'Sarah', role: 'Memories', action: 'Request Access'),
+    const _FamilyMember(name: 'Emma Stevens', role: 'Permissions', action: 'Owner'),
+    const _FamilyMember(name: 'Adam', role: 'Memories', action: 'Add Memories'),
+    const _FamilyMember(name: 'Sophie', role: 'Memories', action: 'View Only'),
+    const _FamilyMember(name: 'Sarah', role: 'Memories', action: 'Request Access'),
   ];
 
   @override
@@ -86,7 +86,7 @@ class _VaultFamilyScreenState extends State<VaultFamilyScreen> {
                             Switch(
                               value: _permissionsEnabled,
                               onChanged: (v) => setState(() => _permissionsEnabled = v),
-                              activeColor: Colors.white.withOpacity(0.9),
+                              activeThumbColor: Colors.white.withOpacity(0.9),
                             ),
                           ],
                         ),

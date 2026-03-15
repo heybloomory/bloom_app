@@ -61,11 +61,11 @@ class GiftsScreen extends StatelessWidget {
                   ),
                   GestureDetector(
                     onTap: () => _openAddGift(context),
-                    child: GlassContainer(
+                    child: const GlassContainer(
                       radius: 18,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       child: Row(
-                        children: const [
+                        children: [
                           Icon(Icons.add, color: Colors.white70, size: 18),
                           SizedBox(width: 6),
                           Text('Add Gift', style: TextStyle(color: Colors.white70)),
@@ -88,12 +88,12 @@ class GiftsScreen extends StatelessWidget {
               const SizedBox(height: 12),
 
               // Search
-              GlassContainer(
+              const GlassContainer(
                 radius: 22,
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 child: Row(
-                  children: const [
+                  children: [
                     Icon(Icons.search, color: Colors.white70),
                     SizedBox(width: 10),
                     Expanded(
@@ -610,7 +610,7 @@ class _AddGiftDialogState extends State<_AddGiftDialog> {
                 const Text('Category', style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: _category,
+                  initialValue: _category,
                   dropdownColor: const Color(0xFF1C1230),
                   decoration: _fieldDecoration('Select category'),
                   items: const [

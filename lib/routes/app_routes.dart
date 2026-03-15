@@ -89,6 +89,7 @@ class AppRoutes {
 
   // Main
   static const dashboard = '/dashboard';
+  static const timeline = '/dashboard'; // timeline tab uses dashboard route for nav
   static const albums = '/albums';
   static const sharedMemories = '/shared-memories';
 

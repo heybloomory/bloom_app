@@ -149,7 +149,7 @@ class VaultScreen extends StatelessWidget {
                             Switch(
                               value: true,
                               onChanged: (_) {},
-                              activeColor: Colors.white.withOpacity(0.9),
+                              activeThumbColor: Colors.white.withOpacity(0.9),
                             ),
                           ],
                         ),

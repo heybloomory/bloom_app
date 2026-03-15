@@ -163,7 +163,7 @@ Future<void> _createDM(BuildContext context) async {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return;
 
-  final otherUserId = 'PASTE_OTHER_USER_UID_HERE'; // TEMP
+  const otherUserId = 'PASTE_OTHER_USER_UID_HERE'; // TEMP
 
   final ids = [user.uid, otherUserId]..sort();
   final convoId = 'dm_${ids[0]}_${ids[1]}';
