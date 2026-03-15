@@ -66,18 +66,15 @@ class _LoginPageState extends State<LoginPage> {
         provider.setCustomParameters({'prompt': 'select_account'});
         await FirebaseAuth.instance.signInWithPopup(provider);
       } else {
-        final googleUser = await GoogleSignIn().signIn();
-        if (googleUser == null) {
-          _snack('Google sign-in canceled');
-          return;
-        }
-
-        final googleAuth = await googleUser.authentication;
+        final googleSignIn = GoogleSignIn.instance;
+        await googleSignIn.initialize();
+        final googleUser = await googleSignIn.authenticate();
+        final clientAuth = await googleUser.authorizationClient
+            .authorizeScopes(['email', 'profile', 'openid']);
         final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
+          idToken: googleUser.authentication.idToken,
+          accessToken: clientAuth.accessToken,
         );
-
         await FirebaseAuth.instance.signInWithCredential(credential);
       }
 
@@ -108,6 +105,12 @@ try {
       );
     } on FirebaseAuthException catch (e) {
       _snack('Google login failed: ${e.message ?? e.code}');
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        _snack('Google sign-in canceled');
+      } else {
+        _snack('Google sign-in failed: $e');
+      }
     } catch (e) {
       _snack('Google login failed: $e');
     } finally {
