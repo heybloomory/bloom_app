@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../layout/main_app_shell.dart';
 import '../../models/timeline_album_summary.dart';
+import '../../models/album_model.dart';
+import '../../models/photo_model.dart';
 import '../../routes/app_routes.dart';
 import '../../services/local_album_service.dart';
+import '../../core/services/timeline_api_service.dart';
+import '../../core/services/auth_session.dart';
 import 'album_detail_screen.dart';
 import 'album_grid.dart';
 
@@ -16,6 +20,7 @@ class TimelineScreen extends StatefulWidget {
 
 class _TimelineScreenState extends State<TimelineScreen> {
   List<TimelineAlbumSummary> _albums = const <TimelineAlbumSummary>[];
+  bool _loading = false;
 
   @override
   void initState() {
@@ -23,10 +28,73 @@ class _TimelineScreenState extends State<TimelineScreen> {
     _loadAlbums();
   }
 
-  void _loadAlbums() {
+  Future<void> _loadAlbums() async {
     setState(() {
-      _albums = LocalAlbumService.listAlbumSummaries();
+      _loading = true;
     });
+
+    try {
+      // Try remote timeline first
+      final remote =
+          await TimelineApiService.fetchTimeline(limit: 50, offset: 0);
+      final albums = remote.map<TimelineAlbumSummary>((memory) {
+        final id = (memory['id'] ?? '').toString();
+        final title = (memory['title'] ?? '').toString();
+        final createdAtStr = (memory['createdAt'] ?? memory['created_at'] ?? '').toString();
+        final updatedAtStr = (memory['updatedAt'] ?? memory['updated_at'] ?? '').toString();
+
+        DateTime createdAt = DateTime.now();
+        if (createdAtStr.isNotEmpty) {
+          createdAt = DateTime.tryParse(createdAtStr) ?? createdAt;
+        }
+        DateTime updatedAt = createdAt;
+        if (updatedAtStr.isNotEmpty) {
+          updatedAt = DateTime.tryParse(updatedAtStr) ?? createdAt;
+        }
+
+        final album = TimelineAlbum(
+          id: id.isEmpty ? 'memory_${createdAt.millisecondsSinceEpoch}' : id,
+          title: title.isEmpty ? 'Untitled memory' : title,
+          createdAt: createdAt,
+          updatedAt: updatedAt,
+          backendAlbumId: id.isEmpty ? null : id,
+        );
+
+        // No local photos yet; remote timeline only exposes memory-level data.
+        return TimelineAlbumSummary(
+          album: album,
+          photos: <Photo>[],
+        );
+      }).toList();
+
+      setState(() {
+        _albums = albums;
+      });
+    } catch (e) {
+      // If unauthorized, clear token so user is sent back to login on next action.
+      final msg = e.toString();
+      if (msg.contains('Unauthorized (401)')) {
+        await AuthSession.clear();
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.login,
+          (_) => false,
+        );
+        return;
+      }
+
+      // Fallback to local albums if remote fails.
+      setState(() {
+        _albums = LocalAlbumService.listAlbumSummaries();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _createAlbum() async {
@@ -117,16 +185,26 @@ class _TimelineScreenState extends State<TimelineScreen> {
               albumCount: albumCount,
               photoCount: photoCount,
               pendingCount: pendingCount,
-              onRefresh: _loadAlbums,
+              onRefresh: () {
+                // fire-and-forget; UI shows loading state
+                _loadAlbums();
+              },
               onCreateAlbum: _createAlbum,
             ),
           ),
-          Expanded(
-            child: AlbumGrid(
-              albums: _albums,
-              onAlbumTap: _openAlbum,
+          if (_loading)
+            const Expanded(
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else
+            Expanded(
+              child: AlbumGrid(
+                albums: _albums,
+                onAlbumTap: _openAlbum,
+              ),
             ),
-          ),
         ],
       ),
     );
