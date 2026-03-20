@@ -8,7 +8,7 @@ class MemoryDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MainAppShell(
-      currentRoute: AppRoutes.sharedMemories,
+      currentRoute: AppRoutes.dashboard,
       child: Column(
         children: [
           // Media Area
