@@ -26,15 +26,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-
-    // ✅ Ensure API-created albums also show up in Timeline (Firestore mirror).
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        await AlbumApiService.listRootAlbums();
-      } catch (_) {
-        // Ignore (no token / offline / etc.)
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startHeavyWork();
     });
+  }
+
+  /// After first frame: optional API mirror (does not block initial paint).
+  Future<void> _startHeavyWork() async {
+    if (!mounted) return;
+    try {
+      await AlbumApiService.listRootAlbums();
+    } catch (_) {
+      // Ignore (no token / offline / etc.)
+    }
   }
 
   @override
@@ -473,7 +477,7 @@ class _TimelineView extends StatelessWidget {
                   for (final section in sections) ...[
                     _SectionTitle(title: section.title),
                     const SizedBox(height: 12),
-                    _AlbumRowFirestore(albums: section.albums),
+                    _AlbumRowFirestoreLimited(albums: section.albums),
                     const SizedBox(height: 22),
                   ],
                 ],
@@ -727,6 +731,52 @@ class _SectionTitle extends StatelessWidget {
         fontSize: 18,
         fontWeight: FontWeight.w500,
       ),
+    );
+  }
+}
+
+/// Caps each month section at 50 albums for responsiveness; "Show more" loads the rest.
+class _AlbumRowFirestoreLimited extends StatefulWidget {
+  final List<_AlbumFirestore> albums;
+
+  const _AlbumRowFirestoreLimited({required this.albums});
+
+  @override
+  State<_AlbumRowFirestoreLimited> createState() =>
+      _AlbumRowFirestoreLimitedState();
+}
+
+class _AlbumRowFirestoreLimitedState extends State<_AlbumRowFirestoreLimited> {
+  static const int _maxInitial = 50;
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.albums;
+    final hidden = all.length > _maxInitial ? all.length - _maxInitial : 0;
+    final visible =
+        !_expanded && hidden > 0 ? all.take(_maxInitial).toList() : all;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _AlbumRowFirestore(albums: visible),
+        if (!_expanded && hidden > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: TextButton.icon(
+              onPressed: () => setState(() => _expanded = true),
+              icon: const Icon(Icons.expand_more, color: Colors.white70),
+              label: Text(
+                'Show more ($hidden more)',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

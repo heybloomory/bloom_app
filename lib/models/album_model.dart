@@ -8,6 +8,8 @@ class TimelineAlbum {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? backendAlbumId;
+  final String? parentAlbumId;
+  final int level;
 
   const TimelineAlbum({
     required this.id,
@@ -15,6 +17,8 @@ class TimelineAlbum {
     required this.createdAt,
     required this.updatedAt,
     this.backendAlbumId,
+    this.parentAlbumId,
+    this.level = 1,
   });
 
   Map<String, dynamic> toMap() {
@@ -24,6 +28,8 @@ class TimelineAlbum {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
       'backendAlbumId': backendAlbumId,
+      'parentAlbumId': parentAlbumId,
+      'level': level,
     };
   }
 
@@ -54,6 +60,8 @@ class TimelineAlbum {
       createdAt: createdAt,
       updatedAt: updatedAt,
       backendAlbumId: map['backendAlbumId']?.toString(),
+      parentAlbumId: map['parentAlbumId']?.toString(),
+      level: (map['level'] as num?)?.toInt() ?? 1,
     );
   }
 
@@ -63,6 +71,8 @@ class TimelineAlbum {
     DateTime? createdAt,
     DateTime? updatedAt,
     Object? backendAlbumId = _timelineAlbumUnset,
+    Object? parentAlbumId = _timelineAlbumUnset,
+    int? level,
   }) {
     return TimelineAlbum(
       id: id ?? this.id,
@@ -72,6 +82,10 @@ class TimelineAlbum {
       backendAlbumId: identical(backendAlbumId, _timelineAlbumUnset)
           ? this.backendAlbumId
           : backendAlbumId as String?,
+      parentAlbumId: identical(parentAlbumId, _timelineAlbumUnset)
+          ? this.parentAlbumId
+          : parentAlbumId as String?,
+      level: level ?? this.level,
     );
   }
 }

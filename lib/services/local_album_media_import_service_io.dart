@@ -64,6 +64,7 @@ class LocalAlbumMediaImportService {
       LocalPhotoStore.addPhoto(
         albumId: albumId,
         localPath: mediaPath,
+        originalFileName: item.name,
         sourceId: item.sourceId,
         localThumbnailPath: savedThumbPath,
         createdAt: createdAt ?? item.selectedAt,

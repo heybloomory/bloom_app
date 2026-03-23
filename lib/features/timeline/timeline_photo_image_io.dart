@@ -1,10 +1,35 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// IO: web_ path → Image.memory(bytes); else localPath → Image.file(File(localPath)).
 Widget buildTimelinePhotoImage({
+  required String? url,
+  required String? thumbUrl,
+  required String localPath,
+  String? localThumbnailPath,
+  BoxFit fit = BoxFit.cover,
+  Uint8List? memoryBytes,
+}) {
+  try {
+    return _buildTimelinePhotoImageBody(
+      url: url,
+      thumbUrl: thumbUrl,
+      localPath: localPath,
+      localThumbnailPath: localThumbnailPath,
+      fit: fit,
+      memoryBytes: memoryBytes,
+    );
+  } catch (e, st) {
+    debugPrint('[CRASH] timeline thumbnail (io build)');
+    debugPrint('  └─ $e');
+    debugPrintStack(label: '[CRASH] timeline thumbnail stack', stackTrace: st);
+    return _placeholder(fit);
+  }
+}
+
+Widget _buildTimelinePhotoImageBody({
   required String? url,
   required String? thumbUrl,
   required String localPath,
@@ -37,16 +62,29 @@ Widget buildTimelinePhotoImage({
 }
 
 Widget _fromPath(String path, BoxFit fit) {
-  if (path.isEmpty) return _placeholder(fit);
-  String p = path.trim();
-  if (p.startsWith('file://')) p = p.substring(7);
-  final file = File(p);
-  if (!file.existsSync()) return _placeholder(fit);
-  return Image.file(
-    file,
-    fit: fit,
-    errorBuilder: (_, __, ___) => _placeholder(fit),
-  );
+  try {
+    if (path.isEmpty) return _placeholder(fit);
+    String p = path.trim();
+    if (p.startsWith('asset:') ||
+        p.startsWith('http://') ||
+        p.startsWith('https://') ||
+        p.startsWith('data:')) {
+      return _placeholder(fit);
+    }
+    if (p.startsWith('file://')) p = p.substring(7);
+    final file = File(p);
+    if (!file.existsSync()) return _placeholder(fit);
+    return Image.file(
+      file,
+      fit: fit,
+      errorBuilder: (_, __, ___) => _placeholder(fit),
+    );
+  } catch (e, st) {
+    debugPrint('[CRASH] timeline thumbnail _fromPath');
+    debugPrint('  └─ $e');
+    debugPrintStack(label: '[CRASH] _fromPath stack', stackTrace: st);
+    return _placeholder(fit);
+  }
 }
 
 Widget _placeholder(BoxFit fit) {

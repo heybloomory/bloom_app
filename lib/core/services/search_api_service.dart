@@ -17,7 +17,7 @@ class SearchApiService {
       if (value is List) {
         return value
             .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e as Map))
+            .map((e) => Map<String, dynamic>.from(e))
             .toList();
       }
       return const [];

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/services/api_config.dart';
@@ -31,6 +32,13 @@ class AutoSyncService {
 
   /// Run one sync pass: if online, sync all albums that have local_only or failed photos.
   static Future<void> runNow() async {
+    try {
+      await LocalPhotoStore.init();
+    } catch (e, st) {
+      // Local-first: skip sync pass if store cannot open.
+      debugPrint('[AutoSync] LocalPhotoStore.init failed: $e\n$st');
+      return;
+    }
     final ok = await _isOnline();
     if (!ok) return;
 
