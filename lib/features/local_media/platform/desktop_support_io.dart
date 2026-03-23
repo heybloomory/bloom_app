@@ -39,7 +39,13 @@ Future<List<DesktopFileItem>> listImageFilesInDir(String dirPath) async {
   return files;
 }
 
-Widget buildFileImageWidget(String path) => Image.file(File(path), fit: BoxFit.cover);
+Widget buildFileImageWidget(String path) => Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const Center(
+        child: Icon(Icons.broken_image_outlined),
+      ),
+    );
 
 bool fileExists(String path) => File(path).existsSync();
 

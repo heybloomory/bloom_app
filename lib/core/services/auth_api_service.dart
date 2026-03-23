@@ -8,6 +8,30 @@ import 'auth_session.dart';
 class AuthApiService {
   static String get _baseUrl => ApiConfig.baseUrl;
 
+  /// Send OTP to the provided phone number.
+  ///
+  /// Backend endpoint: POST /api/auth/send-otp
+  /// Body: { mobile }
+  /// Returns: { success: true, message: "...", otp?: "..." } (otp only in dev)
+  static Future<void> sendOtp(String mobile) async {
+    final uri = Uri.parse('$_baseUrl/api/auth/send-otp');
+
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'mobile': mobile}),
+    );
+
+    final Map<String, dynamic> data = _safeJson(response.body);
+
+    if (response.statusCode == 200 && data['success'] == true) {
+      return;
+    }
+
+    final msg = (data['message'] ?? 'OTP send failed').toString();
+    throw Exception(msg);
+  }
+
   /// Register a new user (email/password or phone/password) against Bloomory Node/Mongo API.
   /// Returns JWT token and persists it locally.
   static Future<String> register({

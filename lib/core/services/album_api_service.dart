@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'auth_session.dart';
-import 'firestore_sync_service.dart';
 
 class AlbumApiService {
   static String get _baseUrl => ApiConfig.baseUrl;
@@ -25,16 +24,7 @@ class AlbumApiService {
     final data = _safeJson(res.body);
 
     if (res.statusCode == 200 && data['success'] == true) {
-      final albums = (data['albums'] as List<dynamic>? ?? []);
-      // Best-effort mirror to Firestore for Timeline.
-      try {
-        for (final a in albums) {
-          if (a is Map) {
-            await FirestoreSyncService.upsertAlbumFromApi(a.cast<String, dynamic>());
-          }
-        }
-      } catch (_) {}
-      return albums;
+      return (data['albums'] as List<dynamic>? ?? []);
     }
     throw Exception((data['message'] ?? 'Failed to load albums').toString());
   }
@@ -45,15 +35,7 @@ class AlbumApiService {
     final data = _safeJson(res.body);
 
     if (res.statusCode == 200 && data['success'] == true) {
-      final albums = (data['albums'] as List<dynamic>? ?? []);
-      try {
-        for (final a in albums) {
-          if (a is Map) {
-            await FirestoreSyncService.upsertAlbumFromApi(a.cast<String, dynamic>());
-          }
-        }
-      } catch (_) {}
-      return albums;
+      return (data['albums'] as List<dynamic>? ?? []);
     }
     throw Exception((data['message'] ?? 'Failed to load sub-albums').toString());
   }
@@ -87,15 +69,7 @@ class AlbumApiService {
     final data = _safeJson(res.body);
 
     if ((res.statusCode == 200 || res.statusCode == 201) && data['success'] == true) {
-      final album = (data['album'] as Map).cast<String, dynamic>();
-
-      // Mirror minimal album metadata to Firestore so Timeline shows it.
-      // Safe: if Firebase isn't configured, it will throw and we ignore.
-      try {
-        await FirestoreSyncService.upsertAlbumFromApi(album);
-      } catch (_) {}
-
-      return album;
+      return (data['album'] as Map).cast<String, dynamic>();
     }
     throw Exception((data['message'] ?? 'Failed to create album').toString());
   }

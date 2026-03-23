@@ -1,12 +1,13 @@
-
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+
+import '../../core/debug/timeline_crash_debug.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'platform/desktop_support.dart' as desk;
@@ -30,13 +31,17 @@ class LocalMediaScreen extends StatefulWidget {
 
 enum _SourceType { webFiles, desktopFolder, mobileAlbum }
 
-class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerProviderStateMixin {
+class _LocalMediaScreenState extends State<LocalMediaScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final TabController _tabs;
 
   // Source selection
   _SourceType? _sourceType;
   String? _desktopFolderPath;
   String? _mobileAlbumId;
+
+  /// True after Photos permission was denied or revoked (mobile gallery).
+  bool _photosPermissionRevoked = false;
 
   // Timeline data
   bool _loadingTimeline = false;
@@ -55,6 +60,11 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
   bool _mobileHasMore = true;
   bool _mobilePaging = false;
 
+  /// Prevents overlapping timeline refresh scans.
+  bool _timelineScanInProgress = false;
+
+  bool _disposed = false;
+
   // Selection
   final Set<String> _selectedKeys = <String>{};
 
@@ -66,14 +76,90 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
   static const _prefsKeyMobileAlbumId = 'local_media_mobile_album_id_v1';
   static const _prefsKeyDbAlbums = 'local_media_db_albums_v1';
 
+  void _log(String msg) {
+    debugPrint('[LocalMedia] $msg');
+  }
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabs = TabController(length: 2, vsync: this);
-    _loadPrefsAndInit();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startHeavyWork();
+    });
+  }
+
+  /// After first frame: prefs + timeline scan (PhotoManager / folder listing).
+  Future<void> _startHeavyWork() async {
+    if (_disposed || !mounted) return;
+    try {
+      await _loadPrefsAndInit();
+    } catch (e, st) {
+      debugPrint('[LocalMedia] _startHeavyWork error: $e\n$st');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _disposed = true;
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_recheckPhotoPermissionOnResume());
+    }
+  }
+
+  /// On resume: re-check gallery permission; stop scanning if revoked.
+  Future<void> _recheckPhotoPermissionOnResume() async {
+    if (_disposed || !mounted || kIsWeb || _isDesktop()) return;
+    if ((_sourceType ?? _inferBestSourceType(null)) != _SourceType.mobileAlbum) {
+      return;
+    }
+    try {
+      final perm = await PhotoManager.requestPermissionExtend();
+      if (!perm.isAuth) {
+        _handlePhotosPermissionRevoked();
+      } else {
+        if (_photosPermissionRevoked) {
+          _safeSetState(() => _photosPermissionRevoked = false);
+        }
+        if (_mobileAlbumId != null && _mobileAlbumId!.trim().isNotEmpty) {
+          await _loadMobileAlbum();
+        }
+      }
+    } catch (e, st) {
+      debugPrint('[LocalMedia] permission recheck: $e\n$st');
+    }
+  }
+
+  void _handlePhotosPermissionRevoked() {
+    _timelineScanInProgress = false;
+    _safeSetState(() {
+      _photosPermissionRevoked = true;
+      _timelineError = null;
+      _mobileAssets = [];
+      _mobileAlbum = null;
+      _mobileHasMore = false;
+      _mobilePaging = false;
+    });
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (_disposed || !mounted) {
+      debugPrint('[UI] mounted check failed (LocalMedia)');
+      return;
+    }
+    setState(fn);
   }
 
   Future<void> _loadPrefsAndInit() async {
+    _log('db load start');
     final prefs = await SharedPreferences.getInstance();
 
     // Load albums
@@ -96,8 +182,10 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
     _mobileAlbumId = prefs.getString(_prefsKeyMobileAlbumId);
 
     _sourceType = _inferBestSourceType(st);
+    _log('db load done; source=$_sourceType');
 
-    if (mounted) setState(() {});
+    if (mounted && !_disposed) setState(() {});
+    if (_disposed) return;
     await _refreshTimeline();
   }
 
@@ -129,6 +217,19 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
   }
 
   Future<void> _refreshTimeline() async {
+    if (_timelineScanInProgress) {
+      debugPrint('[Scan] skipped (already in progress)');
+      return;
+    }
+    _timelineScanInProgress = true;
+    debugPrint('[Scan] started');
+    logScanStart('LocalMedia._refreshTimeline');
+    if (!mounted || _disposed) {
+      _timelineScanInProgress = false;
+      debugPrint('[Scan] finished');
+      logScanEnd('LocalMedia._refreshTimeline aborted (not mounted)');
+      return;
+    }
     setState(() {
       _loadingTimeline = true;
       _timelineError = null;
@@ -136,6 +237,7 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
     });
 
     try {
+      _log('timeline scan start; source=$_sourceType');
       if (kIsWeb) {
         // Web: only show picked files; we can't load by path without user picking again.
         // Don't auto-prompt; show CTA.
@@ -144,12 +246,24 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
       } else {
         await _loadMobileAlbum();
       }
-    } catch (e) {
-      _timelineError = e.toString();
-    }
-
-    if (mounted) {
-      setState(() => _loadingTimeline = false);
+      _log('timeline scan end');
+    } catch (e, stack) {
+      logTimelineLoadCrash('LocalMedia._refreshTimeline', e, stack);
+      _log('Timeline crash: $e\n$stack');
+      if (mounted && !_disposed) {
+        setState(() {
+          _timelineError = e.toString();
+        });
+      } else {
+        _timelineError = e.toString();
+      }
+    } finally {
+      _timelineScanInProgress = false;
+      debugPrint('[Scan] finished');
+      logScanEnd('LocalMedia._refreshTimeline');
+      if (mounted && !_disposed) {
+        setState(() => _loadingTimeline = false);
+      }
     }
   }
 
@@ -162,6 +276,7 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
     );
     if (result == null) return;
 
+    if (!mounted || _disposed) return;
     setState(() {
       _webPicked = result.files.where((f) => f.bytes != null).toList();
       _selectedKeys.clear();
@@ -173,6 +288,7 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
     final path = await desk.pickDirectoryPath();
     if (path == null) return;
 
+    if (!mounted || _disposed) return;
     setState(() {
       _desktopFolderPath = path;
       _selectedKeys.clear();
@@ -185,22 +301,34 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
 
   Future<void> _loadDesktopFolder() async {
     if (_desktopFolderPath == null || _desktopFolderPath!.trim().isEmpty) {
-      setState(() => _desktopFiles = []);
+      _safeSetState(() => _desktopFiles = []);
       return;
     }
     final files = await desk.listImageFilesInDir(_desktopFolderPath!);
-    setState(() => _desktopFiles = files.map((f) => _DesktopImageFile(path: f.path, modified: f.modified)).toList());
+    if (_disposed || !mounted) return;
+    final mapped =
+        files.map((f) => _DesktopImageFile(path: f.path, modified: f.modified)).toList();
+    debugPrint('[Memory] batch processed count=${mapped.length} (desktop folder)');
+    _safeSetState(() => _desktopFiles = mapped);
   }
 
   // -------------------- MOBILE --------------------
   Future<void> _chooseMobileAlbum() async {
-    final perm = await PhotoManager.requestPermissionExtend();
+    final PermissionState perm = await PhotoManager.requestPermissionExtend();
+    _log('permission status chooseMobileAlbum=$perm');
     if (!perm.isAuth) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Permission denied. Please allow Photos access.')),
       );
+      setState(() {
+        _photosPermissionRevoked = true;
+        _timelineError = null;
+      });
       return;
+    }
+    if (mounted && !_disposed) {
+      setState(() => _photosPermissionRevoked = false);
     }
 
     final paths = await PhotoManager.getAssetPathList(
@@ -237,6 +365,7 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
 
     if (chosen == null) return;
 
+    if (!mounted || _disposed) return;
     setState(() {
       _mobileAlbum = chosen;
       _mobileAlbumId = chosen.id;
@@ -252,8 +381,23 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
   }
 
   Future<void> _loadMobileAlbum() async {
-    final perm = await PhotoManager.requestPermissionExtend();
-    if (!perm.isAuth) return;
+    final PermissionState perm = await PhotoManager.requestPermissionExtend();
+    _log('permission status loadMobileAlbum=$perm');
+    if (!perm.isAuth) {
+      if (mounted && !_disposed) {
+        setState(() {
+          _photosPermissionRevoked = true;
+          _timelineError = null;
+          _mobileAssets = [];
+          _mobileAlbum = null;
+          _mobileHasMore = false;
+        });
+      }
+      return;
+    }
+    if (mounted && !_disposed) {
+      setState(() => _photosPermissionRevoked = false);
+    }
 
     // If we don't have a selected album, do nothing; user will pick.
     if (_mobileAlbumId == null || _mobileAlbumId!.trim().isEmpty) return;
@@ -271,7 +415,9 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
     if (_mobileAlbum == null) return;
     if (_mobilePaging) return;
     if (!_mobileHasMore && !reset) return;
+    if (_timelineScanInProgress && !reset) return;
 
+    if (!mounted || _disposed) return;
     setState(() => _mobilePaging = true);
 
     try {
@@ -281,19 +427,50 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
         _mobileAssets = [];
       }
 
-      const pageSize = 120;
-      final items = await _mobileAlbum!.getAssetListPaged(page: _mobilePage, size: pageSize);
-      if (items.isEmpty) {
+      /// Strict page size for memory / UI responsiveness (50–100 range).
+      const pageSize = 80;
+      final raw = await _mobileAlbum!.getAssetListPaged(
+        page: _mobilePage,
+        size: pageSize,
+      );
+      if (_disposed) return;
+
+      final items = <AssetEntity>[];
+      for (final a in raw) {
+        if (!_validateGalleryAsset(a)) continue;
+        items.add(a);
+      }
+
+      if (raw.isEmpty) {
         _mobileHasMore = false;
       } else {
+        if (items.isNotEmpty) {
+          await Future.delayed(const Duration(milliseconds: 50));
+        }
+        if (_disposed || !mounted) return;
         _mobileAssets = [..._mobileAssets, ...items];
         _mobilePage += 1;
-        if (items.length < pageSize) _mobileHasMore = false;
+        debugPrint(
+          '[Memory] batch processed count=${items.length} total=${_mobileAssets.length}',
+        );
+        if (raw.length < pageSize) _mobileHasMore = false;
+      }
+      _log('mobile assets loaded size=${_mobileAssets.length}');
+    } catch (e, stack) {
+      logTimelineLoadCrash('LocalMedia._loadMoreMobileAssets', e, stack);
+      _log('Timeline crash: $e\n$stack');
+      if (mounted && !_disposed) {
+        setState(() {
+          _timelineError = 'Failed to load media.';
+        });
       }
     } finally {
-      if (mounted) setState(() => _mobilePaging = false);
+      if (mounted && !_disposed) {
+        setState(() => _mobilePaging = false);
+      }
     }
   }
+
 
   // -------------------- SELECTION + ALBUMS --------------------
   Future<void> _createDbAlbum() async {
@@ -387,12 +564,52 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
   }
 
   // -------------------- UI --------------------
+  /// Banner when gallery access was denied or revoked after app resume.
+  Widget? _buildPhotosPermissionBanner() {
+    if (!_photosPermissionRevoked || kIsWeb || _isDesktop()) return null;
+    return Material(
+      color: const Color(0xFFB45309).withValues(alpha: 0.92),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.photo_library_outlined, color: Colors.white, size: 22),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Photos permission required',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () async {
+                try {
+                  await PhotoManager.openSetting();
+                } catch (e) {
+                  debugPrint('[LocalMedia] openSetting: $e');
+                }
+              },
+              child: const Text('Settings', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    logUiBuild('LocalMediaScreen');
+    final permissionBanner = _buildPhotosPermissionBanner();
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
+            if (permissionBanner != null) permissionBanner,
             _headerBar(),
             TabBar(
               controller: _tabs,
@@ -451,7 +668,23 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
 
   Widget _timelineTab() {
     if (_loadingTimeline) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              'Scanning photos...',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.75),
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     if (_timelineError != null) {
       return Center(child: Text(_timelineError!));
@@ -497,7 +730,14 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
                     return _thumb(
                       selected: selected,
                       onTap: () => _toggleSelect(key),
-                      child: Image.memory(f.bytes!, fit: BoxFit.cover),
+                      child: Image.memory(
+                        f.bytes!,
+                        fit: BoxFit.cover,
+                        cacheWidth: 250,
+                        cacheHeight: 250,
+                        errorBuilder: (_, __, ___) =>
+                            const Center(child: Icon(Icons.broken_image_outlined)),
+                      ),
                       label: f.name,
                     );
                   },
@@ -544,10 +784,13 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
                     final f = _desktopFiles[i];
                     final key = 'file:${f.path}';
                     final selected = _selectedKeys.contains(key);
+                    final imageChild = desk.fileExists(f.path)
+                        ? desk.buildFileImageWidget(f.path)
+                        : const Center(child: Icon(Icons.broken_image_outlined));
                     return _thumb(
                       selected: selected,
                       onTap: () => _toggleSelect(key),
-                      child: desk.buildFileImageWidget(f.path),
+                      child: imageChild,
                       label: _basename(f.path),
                     );
                   },
@@ -585,9 +828,36 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
             ],
           ),
         ),
+        if (_mobilePaging)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _mobileAssets.isEmpty
+                        ? 'Scanning photos...'
+                        : 'Processing ${_mobileAssets.length} photos...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.78),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: _mobileAlbum == null
               ? const Center(child: Text('Select an album to show timeline.'))
+              : _mobileAssets.isEmpty && !_mobilePaging
+                  ? const Center(child: Text('No media found in selected album.'))
               : NotificationListener<ScrollNotification>(
                   onNotification: (n) {
                     if (n.metrics.pixels > n.metrics.maxScrollExtent - 600) {
@@ -602,17 +872,15 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
                         return const Center(child: CircularProgressIndicator());
                       }
                       final a = _mobileAssets[i];
+                      if (a.id.trim().isEmpty) {
+                        return const Center(child: Icon(Icons.broken_image_outlined));
+                      }
                       final key = 'asset:${a.id}';
                       final selected = _selectedKeys.contains(key);
                       return _thumb(
                         selected: selected,
                         onTap: () => _toggleSelect(key),
-                        child: AssetEntityImage(
-                          a,
-                          isOriginal: false,
-                          thumbnailSize: const ThumbnailSize.square(300),
-                          fit: BoxFit.cover,
-                        ),
+                        child: _MobileSafeThumbnail(asset: a),
                         label: '',
                       );
                     },
@@ -775,12 +1043,10 @@ class _LocalMediaScreenState extends State<LocalMediaScreen> with SingleTickerPr
         builder: (_, snap) {
           final a = snap.data;
           if (a == null) return const Center(child: Icon(Icons.broken_image_outlined));
-          return AssetEntityImage(
-            a,
-            isOriginal: false,
-            thumbnailSize: const ThumbnailSize.square(300),
-            fit: BoxFit.cover,
-          );
+          if (!_validateGalleryAsset(a)) {
+            return const Center(child: Icon(Icons.broken_image_outlined));
+          }
+          return _MobileSafeThumbnail(asset: a);
         },
       );
     }
@@ -807,6 +1073,129 @@ class _DesktopImageFile {
   final String path;
   final DateTime modified;
   _DesktopImageFile({required this.path, required this.modified});
+}
+
+/// Shared validation for gallery rows (logging uses [Scan] prefix).
+bool _validateGalleryAsset(AssetEntity? asset) {
+  if (asset == null) {
+    debugPrint('[Scan] skipped invalid asset (null)');
+    return false;
+  }
+  try {
+    if (asset.id.trim().isEmpty) {
+      debugPrint('[Scan] skipped invalid asset (empty id)');
+      return false;
+    }
+    if (asset.type != AssetType.image) {
+      debugPrint('[Scan] skipped invalid asset (non-image type)');
+      return false;
+    }
+    final _ = asset.createDateTime;
+    return true;
+  } catch (e) {
+    debugPrint('[Scan] skipped invalid asset: $e');
+    return false;
+  }
+}
+
+/// Max thumbnail edge ~250px; single attempt (used by retry helper).
+Future<Uint8List?> _safeThumbnailBytesOnce(AssetEntity asset) async {
+  try {
+    final bytes =
+        await asset.thumbnailDataWithSize(const ThumbnailSize(250, 250));
+    if (bytes == null || bytes.isEmpty) return null;
+    return bytes;
+  } catch (e, st) {
+    logThumbnailCrash(e, st);
+    return null;
+  }
+}
+
+/// One automatic retry before fallback (stability on transient gallery errors).
+Future<Uint8List?> _loadThumbnailWithRetry(AssetEntity asset) async {
+  try {
+    var b = await _safeThumbnailBytesOnce(asset);
+    if (b != null && b.isNotEmpty) return b;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    return await _safeThumbnailBytesOnce(asset);
+  } catch (e, st) {
+    logThumbnailCrash(e, st);
+    return null;
+  }
+}
+
+class _MobileSafeThumbnail extends StatefulWidget {
+  final AssetEntity asset;
+
+  const _MobileSafeThumbnail({required this.asset});
+
+  @override
+  State<_MobileSafeThumbnail> createState() => _MobileSafeThumbnailState();
+}
+
+class _MobileSafeThumbnailState extends State<_MobileSafeThumbnail> {
+  Uint8List? _bytes;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final b = await _loadThumbnailWithRetry(widget.asset);
+      if (!mounted) return;
+      setState(() {
+        _bytes = b;
+        _loading = false;
+      });
+    } catch (e, st) {
+      logThumbnailCrash(e, st);
+      if (!mounted) return;
+      setState(() {
+        _bytes = null;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _bytes = null;
+    super.dispose();
+  }
+
+  static Widget _placeholder() => Container(
+        color: Colors.white24,
+        child: const Center(
+          child: Icon(Icons.broken_image_outlined, color: Colors.white54),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    final b = _bytes;
+    if (b == null || b.isEmpty) return _placeholder();
+    return Image.memory(
+      b,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      cacheWidth: 250,
+      cacheHeight: 250,
+      errorBuilder: (_, __, ___) => _placeholder(),
+    );
+  }
 }
 
 class _DbAlbumDetailScreen extends StatelessWidget {

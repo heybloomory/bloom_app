@@ -5,8 +5,8 @@ import '../features/splash/splash_page.dart';
 import '../features/auth/login_page.dart';
 import '../features/auth/register_page.dart';
 
-// Dashboard
-import '../features/home/dashboard_screen.dart';
+// Dashboard / Timeline
+import '../features/timeline/timeline_screen.dart';
 
 // Albums & Memories
 import '../features/albums/albums_screen.dart';
@@ -105,7 +105,7 @@ class AppRoutes {
     login: (_) => const LoginPage(),
     register: (_) => const RegisterPage(),
 
-    dashboard: (_) => const DashboardScreen(),
+    dashboard: (_) => const TimelineScreen(),
     albums: (_) => const AlbumsScreen(),
 	    localMedia: (_) => const LocalMediaScreen(),
 albumDetail: (context) {
