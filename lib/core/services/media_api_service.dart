@@ -74,7 +74,7 @@ class MediaApiService {
 
     final response = await http.Response.fromStream(streamed);
 
-    Map<String, dynamic> _safeJson() {
+    Map<String, dynamic> safeJson() {
       try {
         final decoded = jsonDecode(response.body);
         if (decoded is Map<String, dynamic>) return decoded;
@@ -84,7 +84,7 @@ class MediaApiService {
       }
     }
 
-    final data = _safeJson();
+    final data = safeJson();
     if (response.statusCode == 201 && data['success'] == true) {
       return Map<String, dynamic>.from(data['media'] as Map? ?? {});
     }
@@ -100,6 +100,7 @@ class MediaApiService {
     required String albumId,
     required Uint8List bytes,
     required String fileName,
+    String? originalFileName,
     Uint8List? thumbnailBytes,
     String? thumbnailFileName,
   }) async {
@@ -110,6 +111,9 @@ class MediaApiService {
     req.headers['Authorization'] = 'Bearer $token';
 
     req.fields['albumId'] = albumId;
+    if (originalFileName != null && originalFileName.trim().isNotEmpty) {
+      req.fields['originalFileName'] = originalFileName.trim();
+    }
 
     req.files.add(
       http.MultipartFile.fromBytes(
@@ -160,4 +164,3 @@ class MediaApiService {
     }
   }
 }
-

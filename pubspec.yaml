@@ -51,6 +51,8 @@ dependencies:
   google_sign_in: ^7.2.0
   intl: ^0.20.2
   image_picker: ^1.0.7
+  image: ^4.2.0
+  google_mlkit_face_detection: ^0.13.1
   path_provider: ^2.1.2
   hive_flutter: ^1.1.0
 
@@ -113,4 +115,3 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/custom-fonts/#from-packages
-

@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// Stub (web): web_ path → Image.memory(bytes); no File on web.
@@ -11,7 +10,8 @@ Widget buildTimelinePhotoImage({
   BoxFit fit = BoxFit.cover,
   Uint8List? memoryBytes,
 }) {
-  if (localPath.startsWith('web_') &&
+  try {
+    if (localPath.startsWith('web_') &&
       memoryBytes != null &&
       memoryBytes.isNotEmpty) {
     return Image.memory(
@@ -29,6 +29,12 @@ Widget buildTimelinePhotoImage({
     );
   }
   return _placeholder(fit);
+  } catch (e, st) {
+    debugPrint('[CRASH] timeline thumbnail (web/stub build)');
+    debugPrint('  └─ $e');
+    debugPrintStack(label: '[CRASH] timeline thumbnail stack', stackTrace: st);
+    return _placeholder(fit);
+  }
 }
 
 Widget _placeholder(BoxFit fit) {
