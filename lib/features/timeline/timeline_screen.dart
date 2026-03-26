@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/glass_container.dart';
+import '../../core/services/offer_service.dart';
+import '../../core/services/user_api_service.dart';
 import '../../layout/main_app_shell.dart';
 import '../../models/photo_model.dart';
 import '../../models/smart_media_models.dart';
@@ -16,9 +18,12 @@ import '../../services/local_photo_store.dart';
 import '../../services/local_smart_media_processing_engine.dart';
 import '../../services/local_smart_search.dart';
 import '../../services/sync/sync_queue_service.dart';
+import '../../services/personalization_service.dart';
+import '../../services/api_service.dart';
 import '../import/import_studio_screen.dart';
 import 'timeline_smart_viewer.dart';
 import 'timeline_photo_image.dart';
+import '../../services/analytics_service.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -42,6 +47,11 @@ class _TimelineScreenState extends State<TimelineScreen> {
   String _searchQuery = '';
   bool _showIntro = false;
   bool _introPlayed = false;
+  bool _offerShownThisSession = false;
+  OfferMessage? _offer;
+  PersonalizedBanner? _personalizedBanner;
+  List<PersonalizedRecommendation> _recommendations =
+      <PersonalizedRecommendation>[];
   DateTime? _importHeaderUntil;
   static const _lastImportPhotoIdsKey = 'last_import_photo_ids_v1';
   static const _lastImportAlbumIdsKey = 'last_import_album_ids_v1';
@@ -81,7 +91,43 @@ class _TimelineScreenState extends State<TimelineScreen> {
     _searchCtrl.addListener(() {
       _safeSetState(() => _searchQuery = _searchCtrl.text);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTimeline());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startTimelineFlow());
+  }
+
+  Future<void> _startTimelineFlow() async {
+    try {
+      final completed = await UserApiService.isProfileCompleted();
+      if (!mounted) return;
+      if (!completed) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          AppRoutes.profileCompletion,
+          (_) => false,
+        );
+        return;
+      }
+    } catch (_) {
+      // If check fails, allow timeline; profile screen can still be opened manually.
+    }
+    await _loadTimeline();
+    await _loadOffer();
+    await _loadPersonalizedContent();
+    unawaited(_trackTimelineView());
+  }
+
+  Future<void> _loadOffer() async {
+    if (_offerShownThisSession) return;
+    final offer = await OfferService.getTimelineOffer();
+    if (!mounted) return;
+    setState(() {
+      _offer = offer;
+      _offerShownThisSession = offer != null;
+    });
+    if (offer != null) {
+      await AnalyticsService.logEvent('banner_viewed', params: {
+        'title': offer.title,
+      });
+    }
   }
 
   Future<void> _loadTimeline() async {
@@ -128,6 +174,30 @@ class _TimelineScreenState extends State<TimelineScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _loadPersonalizedContent() async {
+    final content = await PersonalizationService.fetchPersonalizedContent();
+    if (!mounted) return;
+    _safeSetState(() {
+      _personalizedBanner =
+          content.banners.isNotEmpty ? content.banners.first : null;
+      _recommendations = content.recommendations;
+    });
+    if (_personalizedBanner != null) {
+      await AnalyticsService.logEvent('banner_viewed', params: {
+        'title': _personalizedBanner!.title,
+        'source': 'personalized',
+      });
+    }
+  }
+
+  Future<void> _trackTimelineView() async {
+    try {
+      await ApiService.post('/api/users/track-engagement', {
+        'action': 'timeline_view',
+      });
+    } catch (_) {}
   }
 
   ({List<SmartEvent> events, List<SmartMediaItem> items}) _visibleData() {
@@ -300,6 +370,117 @@ class _TimelineScreenState extends State<TimelineScreen> {
               },
             ),
           ),
+          if (_offer != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Dismissible(
+                key: ValueKey<String>('offer_${_offer!.title}_${_offer!.body}'),
+                direction: DismissDirection.up,
+                onDismissed: (_) => _safeSetState(() => _offer = null),
+                child: GlassContainer(
+                  radius: 16,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('🎉', style: TextStyle(fontSize: 18)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            unawaited(AnalyticsService.logEvent('banner_clicked', params: {
+                              'title': _offer!.title,
+                            }));
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _offer!.title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _offer!.body,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Dismiss',
+                        onPressed: () => _safeSetState(() => _offer = null),
+                        icon: const Icon(
+                          Icons.close,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (_offer == null && _personalizedBanner != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: GlassContainer(
+                radius: 16,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    const Text('✨', style: TextStyle(fontSize: 18)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () {
+                          unawaited(AnalyticsService.logEvent('banner_clicked', params: {
+                            'title': _personalizedBanner!.title,
+                            'source': 'personalized',
+                          }));
+                          if (_personalizedBanner!.target == 'profile') {
+                            Navigator.pushNamed(context, AppRoutes.profileCompletion);
+                          } else {
+                            Navigator.pushNamed(context, AppRoutes.dashboard);
+                          }
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _personalizedBanner!.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _personalizedBanner!.subtitle,
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Dismiss',
+                      onPressed: () => _safeSetState(() => _personalizedBanner = null),
+                      icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_loading)
             const Expanded(
               child: Center(child: CircularProgressIndicator()),
@@ -404,6 +585,39 @@ class _TimelineScreenState extends State<TimelineScreen> {
                           parent: AlwaysScrollableScrollPhysics(),
                         ),
                         slivers: [
+                          if (_recommendations.isNotEmpty)
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                                child: GlassContainer(
+                                  radius: 18,
+                                  padding: const EdgeInsets.all(12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Recommended for you',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ..._recommendations.take(2).map((r) => Padding(
+                                            padding: const EdgeInsets.only(bottom: 6),
+                                            child: Text(
+                                              '• ${r.title}: ${r.description}',
+                                              style: TextStyle(
+                                                color: Colors.white.withValues(alpha: 0.82),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          )),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
                           ..._monthSections(data.items),
                         ],
                         ),

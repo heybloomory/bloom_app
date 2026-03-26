@@ -47,7 +47,16 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
       // Navigate to OTP verification.
       if (!mounted) return;
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => OtpPage(mobile: phone)),
+        MaterialPageRoute(
+          builder: (_) => OtpPage(
+            decision: AuthRoutingDecision(
+              country: 'IN',
+              loginType: 'mobile',
+              isRegistered: true,
+              identifier: phone,
+            ),
+          ),
+        ),
       );
     } catch (e) {
       _snack('OTP failed: $e');

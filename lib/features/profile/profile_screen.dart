@@ -8,6 +8,7 @@ import '../../routes/app_routes.dart';
 import '../../services/local_album_service.dart';
 import '../../services/local_photo_store.dart';
 import '../../core/services/user_api_service.dart';
+import '../../services/auth_service.dart';
 import '../timeline/album_detail_screen.dart';
 import '../timeline/timeline_photo_image.dart';
 
@@ -619,6 +620,7 @@ class _ProfileMenu extends StatelessWidget {
           danger: true,
           onTap: () async {
             await FirebaseAuth.instance.signOut();
+            await AuthService.logout();
             if (context.mounted) {
               Navigator.pushNamedAndRemoveUntil(
                 context,

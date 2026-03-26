@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../core/services/auth_api_service.dart';
+import '../../core/services/country_detection_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 
@@ -14,7 +15,8 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  bool isIndia = true;
+  bool isIndia = false;
+  bool _detectingCountry = true;
   bool _loading = false;
 
   final nameController = TextEditingController();
@@ -38,6 +40,12 @@ class _RegisterPageState extends State<RegisterPage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _detectCountry();
+  }
+
+  @override
   void dispose() {
     nameController.dispose();
     phoneController.dispose();
@@ -55,6 +63,23 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _setLoading(bool v) async {
     if (!mounted) return;
     setState(() => _loading = v);
+  }
+
+  Future<void> _detectCountry() async {
+    try {
+      final india = await CountryDetectionService.isIndia();
+      if (!mounted) return;
+      setState(() {
+        isIndia = india;
+        _detectingCountry = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        isIndia = false;
+        _detectingCountry = false;
+      });
+    }
   }
 
   Future<void> _register() async {
@@ -115,12 +140,30 @@ class _RegisterPageState extends State<RegisterPage> {
                     Text(
                       isIndia
                           ? 'Register using your mobile number'
-                          : 'Register using email & password',
+                          : 'Register using email',
                       style: TextStyle(color: Colors.white.withOpacity(0.7)),
                     ),
                     const SizedBox(height: 24),
-                    _countryToggle(),
-                    const SizedBox(height: 24),
+                    if (_detectingCountry)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Detecting region...',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
                     _inputField(
                       controller: nameController,
@@ -164,7 +207,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: 30),
                     _glassButton(
                       text: _loading ? 'Creating…' : 'Create account',
-                      enabled: _isValid && !_loading,
+                      enabled: _isValid && !_loading && !_detectingCountry,
                       onTap: _register,
                     ),
 
@@ -185,57 +228,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _countryToggle() {
-    return GestureDetector(
-      onTap: () => setState(() => isIndia = !isIndia),
-      child: Container(
-        height: 46,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(30),
-          color: Colors.white.withOpacity(0.12),
-          border: Border.all(color: Colors.white.withOpacity(0.25)),
-        ),
-        child: Stack(
-          children: [
-            AnimatedAlign(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-              alignment: isIndia ? Alignment.centerLeft : Alignment.centerRight,
-              child: Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(26),
-                  color: Colors.white.withOpacity(0.25),
-                ),
-              ),
-            ),
-            Row(
-              children: [
-                _toggleLabel(text: 'India 🇮🇳', active: isIndia),
-                _toggleLabel(text: 'Global 🌍', active: !isIndia),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toggleLabel({required String text, required bool active}) {
-    return Expanded(
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: active ? Colors.white : Colors.white70,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),

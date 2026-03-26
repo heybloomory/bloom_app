@@ -1,8 +1,5 @@
 plugins {
     id "com.android.application"
-    // START: FlutterFire Configuration
-    id 'com.google.gms.google-services'
-    // END: FlutterFire Configuration
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -26,7 +23,7 @@ if (flutterVersionName == null) {
 }
 
 android {
-    namespace "com.bloomoryai.app"
+    namespace "com.bloomoryai.android"
     compileSdkVersion 36
 
     // compileSdkVersion flutter.compileSdkVersion
@@ -47,7 +44,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId "com.bloomoryai.app"
+        applicationId "com.bloomoryai.android"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
         minSdkVersion flutter.minSdkVersion
@@ -71,3 +68,5 @@ flutter {
 }
 
 dependencies {}
+
+apply plugin: 'com.google.gms.google-services'

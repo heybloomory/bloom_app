@@ -1,48 +1,33 @@
 import 'dart:ui';
+import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../core/services/auth_api_service.dart';
-
 import '../../core/theme/app_theme.dart';
-import '../../routes/app_routes.dart';
+import '../../services/analytics_service.dart';
 import 'otp_page.dart';
 
 class LoginPage extends StatefulWidget {
-  final String? mobile;
-
-  const LoginPage({super.key, this.mobile});
+  const LoginPage({super.key});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool isIndia = true;
-
-  final TextEditingController mobileController = TextEditingController();
-  final TextEditingController emailController = TextEditingController();
-  final TextEditingController passwordController = TextEditingController();
+  final TextEditingController _identifierController = TextEditingController();
+  AuthRoutingDecision? _decision;
+  Timer? _detectDebounce;
 
   bool _loading = false;
 
-  bool get isValid {
-    if (isIndia) {
-      return mobileController.text.trim().length == 10;
-    } else {
-      return emailController.text.trim().contains('@') &&
-          passwordController.text.trim().length >= 6;
-    }
-  }
+  bool get isValid => _identifierController.text.trim().isNotEmpty;
 
   @override
   void dispose() {
-    mobileController.dispose();
-    emailController.dispose();
-    passwordController.dispose();
+    _detectDebounce?.cancel();
+    _identifierController.dispose();
     super.dispose();
   }
 
@@ -56,90 +41,80 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _loading = v);
   }
 
-  // ✅ GOOGLE SIGN-IN (WEB + MOBILE)
-  Future<void> _signInWithGoogle() async {
+  Future<void> _detectAndSendOtp() async {
+    final identifier = _identifierController.text.trim();
     try {
       await _setLoading(true);
-
-      if (kIsWeb) {
-        final provider = GoogleAuthProvider();
-        provider.setCustomParameters({'prompt': 'select_account'});
-        await FirebaseAuth.instance.signInWithPopup(provider);
-      } else {
-        final googleSignIn = GoogleSignIn.instance;
-        await googleSignIn.initialize();
-        final googleUser = await googleSignIn.authenticate();
-        final clientAuth = await googleUser.authorizationClient
-            .authorizeScopes(['email', 'profile', 'openid']);
-        final credential = GoogleAuthProvider.credential(
-          idToken: googleUser.authentication.idToken,
-          accessToken: clientAuth.accessToken,
-        );
-        await FirebaseAuth.instance.signInWithCredential(credential);
-      }
-
-      // ✅ Optional: sync/login with Bloomory backend using Firebase ID token
-     final user = FirebaseAuth.instance.currentUser;
-if (user != null) {
-  final String? idToken = await user.getIdToken();
-
-if (idToken == null || idToken.isEmpty) {
-  _snack("Google Sign-In failed: missing idToken.");
-  return;
-}
-
-try {
-  await AuthApiService.loginWithGoogleIdToken(idToken);
-} catch (_) {
-  // ignore backend sync errors for now
-}
-
-}
-
-
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.dashboard,
-        (_) => false,
+      await AnalyticsService.logEvent('login_attempt');
+      final decision = await AuthApiService.detectUser(identifier);
+      setState(() => _decision = decision);
+      await AuthApiService.sendLoginOtp(
+        isIndia: decision.useMobileOtp,
+        identifier: decision.identifier,
       );
-    } on FirebaseAuthException catch (e) {
-      _snack('Google login failed: ${e.message ?? e.code}');
-    } on GoogleSignInException catch (e) {
-      if (e.code == GoogleSignInExceptionCode.canceled) {
-        _snack('Google sign-in canceled');
-      } else {
-        _snack('Google sign-in failed: $e');
-      }
+      await AnalyticsService.logEvent('otp_sent', params: {
+        'method': decision.useMobileOtp ? 'mobile' : 'email',
+        'country': decision.country,
+      });
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OtpPage(
+            decision: decision,
+          ),
+        ),
+      );
     } catch (e) {
-      _snack('Google login failed: $e');
+      // Fallback to email OTP if backend detection fails.
+      try {
+        final fallback = AuthRoutingDecision(
+          country: 'UNKNOWN',
+          loginType: 'email',
+          isRegistered: true,
+          identifier: identifier,
+        );
+        setState(() => _decision = fallback);
+        await AuthApiService.sendLoginOtp(
+          isIndia: false,
+          identifier: identifier,
+        );
+        await AnalyticsService.logEvent('otp_sent', params: {
+          'method': 'email',
+          'country': 'UNKNOWN',
+          'fallback': true,
+        });
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => OtpPage(decision: fallback)),
+        );
+      } catch (fallbackErr) {
+        _snack('OTP send failed: $fallbackErr');
+      }
     } finally {
       await _setLoading(false);
     }
   }
 
-  // ✅ EMAIL/PASSWORD (GLOBAL MODE)
-  Future<void> _signInWithEmailPassword() async {
-    final email = emailController.text.trim();
-    final pass = passwordController.text.trim();
-
-    try {
-      await _setLoading(true);
-
-      // ✅ Manual email/password login goes to Bloomory Node/Mongo API
-      await AuthApiService.loginWithEmail(email, pass);
-
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        AppRoutes.dashboard,
-        (_) => false,
-      );
-    } catch (e) {
-      _snack('Login failed: $e');
-    } finally {
-      await _setLoading(false);
+  void _onIdentifierChanged(String value) {
+    setState(() {});
+    _detectDebounce?.cancel();
+    final input = value.trim();
+    if (input.isEmpty) {
+      setState(() => _decision = null);
+      return;
     }
+    _detectDebounce = Timer(const Duration(milliseconds: 350), () async {
+      try {
+        final decision = await AuthApiService.detectUser(input);
+        if (!mounted) return;
+        // Respect backend as source of truth for login method.
+        setState(() => _decision = decision);
+      } catch (_) {
+        // Do not block UX on detect errors; fallback happens on submit.
+      }
+    });
   }
 
   // ---------------- UI ----------------
@@ -169,55 +144,36 @@ try {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      isIndia
-                          ? 'Login using your mobile number'
-                          : 'Login using email & password',
+                      _decision == null
+                          ? 'Enter mobile number or email'
+                          : _decision!.useMobileOtp
+                              ? 'Login using Mobile OTP'
+                              : 'Login using Email OTP',
                       style: TextStyle(color: Colors.white.withOpacity(0.7)),
                     ),
                     const SizedBox(height: 24),
-                    _countryToggle(),
-                    const SizedBox(height: 24),
-
-                    if (isIndia)
-                      _inputField(
-                        controller: mobileController,
-                        hint: '10-digit mobile number',
-                        keyboard: TextInputType.phone,
-                        onChanged: (_) => setState(() {}),
-                      ),
-
-                    if (!isIndia) ...[
-                      _inputField(
-                        controller: emailController,
-                        hint: 'Email address',
-                        keyboard: TextInputType.emailAddress,
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 16),
-                      _inputField(
-                        controller: passwordController,
-                        hint: 'Password (min 6)',
-                        obscure: true,
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ],
+                    _inputField(
+                      controller: _identifierController,
+                      hint: _decision == null
+                          ? 'Mobile number or email'
+                          : _decision!.useMobileOtp
+                              ? '10-digit mobile number'
+                              : 'Email address',
+                      keyboard: _decision == null
+                          ? TextInputType.text
+                          : (_decision!.useMobileOtp
+                              ? TextInputType.phone
+                              : TextInputType.emailAddress),
+                      onChanged: _onIdentifierChanged,
+                    ),
 
                     const SizedBox(height: 30),
 
                     _glassButton(
-                      text: _loading ? 'Please wait…' : 'Continue',
+                      text: _loading ? 'Please wait…' : 'Send OTP',
                       enabled: isValid && !_loading,
                       onTap: _onContinue,
                     ),
-
-                    const SizedBox(height: 20),
-                    _divider(),
-                    const SizedBox(height: 20),
-
-                    _googleButton(),
-
-                    const SizedBox(height: 12),
-                    _registerLink(),
                   ],
                 ),
               ),
@@ -228,56 +184,6 @@ try {
     );
   }
 
-  Widget _countryToggle() {
-    return GestureDetector(
-      onTap: () => setState(() => isIndia = !isIndia),
-      child: Container(
-        height: 46,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(30),
-          color: Colors.white.withOpacity(0.12),
-          border: Border.all(color: Colors.white.withOpacity(0.25)),
-        ),
-        child: Stack(
-          children: [
-            AnimatedAlign(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-              alignment: isIndia ? Alignment.centerLeft : Alignment.centerRight,
-              child: Container(
-                width: 140,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(26),
-                  color: Colors.white.withOpacity(0.25),
-                ),
-              ),
-            ),
-            Row(
-              children: [
-                _toggleLabel(text: 'India 🇮🇳', active: isIndia),
-                _toggleLabel(text: 'Global 🌍', active: !isIndia),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toggleLabel({required String text, required bool active}) {
-    return Expanded(
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            color: active ? Colors.white : Colors.white70,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _glassCard({required Widget child}) {
     return ClipRRect(
@@ -352,95 +258,10 @@ try {
     );
   }
 
-  Widget _googleButton() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          height: 52,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.white.withOpacity(0.18),
-                Colors.white.withOpacity(0.08),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withOpacity(0.25)),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: _loading ? null : _signInWithGoogle,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset('assets/icons/google.png', height: 20, width: 20),
-                const SizedBox(width: 12),
-                Text(
-                  _loading ? 'Signing in…' : 'Continue with Google',
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _divider() {
-    return Row(
-      children: [
-        Expanded(child: Divider(color: Colors.white.withOpacity(0.2))),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text('OR', style: TextStyle(color: Colors.white.withOpacity(0.6))),
-        ),
-        Expanded(child: Divider(color: Colors.white.withOpacity(0.2))),
-      ],
-    );
-  }
-
-  Widget _registerLink() {
-    return Center(
-      child: TextButton(
-        onPressed: _loading
-            ? null
-            : () => Navigator.pushNamed(context, AppRoutes.register),
-        child: const Text(
-          "Don't have an account? Register",
-          style: TextStyle(
-            color: Colors.white,
-            decoration: TextDecoration.underline,
-          ),
-        ),
-      ),
-    );
-  }
-
   // ---------------- LOGIC ----------------
 
   void _onContinue() {
-    if (_loading) return;
-
-    if (isIndia) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => OtpPage(mobile: mobileController.text.trim()),
-        ),
-      );
-    } else {
-      if (!isValid) return;
-      _signInWithEmailPassword();
-    }
+    if (_loading || !isValid) return;
+    _detectAndSendOtp();
   }
 }
