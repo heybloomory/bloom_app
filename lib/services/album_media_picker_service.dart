@@ -96,7 +96,7 @@ class AlbumMediaPickerService {
         AlbumPickedMedia(
           name: file.name,
           sourceId: _sourceIdFromPlatformFile(file, bytes),
-          originalPath: (file.path ?? '').isEmpty ? null : file.path,
+          originalPath: _platformFilePathOrNull(file),
           bytes: bytes,
           selectedAt: DateTime.now(),
         ),
@@ -132,10 +132,44 @@ class AlbumMediaPickerService {
   }
 
   static String _sourceIdFromPlatformFile(PlatformFile file, Uint8List bytes) {
-    final path = file.path;
+    final path = _platformFilePathOrNull(file);
     if (path != null && path.isNotEmpty) {
       return 'picker:${path.toLowerCase()}';
     }
     return 'picker:${file.name}:${bytes.lengthInBytes}:${file.size}';
+  }
+
+  static String? _platformFilePathOrNull(PlatformFile file) {
+    if (kIsWeb) return null;
+    final path = file.path;
+    if (path == null || path.isEmpty) return null;
+    return path;
+  }
+
+  /// Web-safe: takes bytes from pickers where path is unavailable.
+  static Future<void> handleImageBytes(
+    Uint8List bytes,
+    String fileName,
+    Future<void> Function(Uint8List bytes, String fileName) onHandle,
+  ) async {
+    if (bytes.isEmpty) {
+      throw Exception('File bytes are null');
+    }
+    await onHandle(bytes, fileName);
+  }
+
+  /// Mobile/desktop-safe: takes file path when available.
+  static Future<void> handleImageFile(
+    PlatformFile file,
+    Future<void> Function(String path) onHandle,
+  ) async {
+    if (kIsWeb) {
+      throw Exception('File path is not available on web');
+    }
+    final path = file.path;
+    if (path == null || path.isEmpty) {
+      throw Exception('File path is null');
+    }
+    await onHandle(path);
   }
 }

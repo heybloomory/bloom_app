@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 
 import '../../core/widgets/glass_container.dart';
+import '../../models/photo_model.dart';
 import '../../models/timeline_album_summary.dart';
 import 'timeline_photo_image.dart';
 
@@ -83,33 +85,7 @@ class _AlbumCard extends StatelessWidget {
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(24),
                       ),
-                      child: cover == null
-                          ? Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.white.withValues(alpha: 0.10),
-                                    Colors.white.withValues(alpha: 0.04),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.photo_album_outlined,
-                                  color: Colors.white70,
-                                  size: 48,
-                                ),
-                              ),
-                            )
-                          : buildTimelinePhotoImage(
-                              url: cover.serverUrl,
-                              thumbUrl: cover.thumbUrl,
-                              localPath: cover.localPath,
-                              localThumbnailPath: cover.localThumbnailPath,
-                              fit: BoxFit.cover,
-                            ),
+                      child: _buildCover(cover),
                     ),
                   ),
                   Positioned(
@@ -204,6 +180,50 @@ class _AlbumCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildCover(Photo? cover) {
+    final coverBytes = album.album.coverBytes;
+    final coverPath = (album.album.coverPath ?? '').trim();
+    if (kIsWeb && coverBytes != null && coverBytes.isNotEmpty) {
+      return Image.memory(coverBytes, fit: BoxFit.cover);
+    }
+    if (!kIsWeb && coverPath.isNotEmpty) {
+      return buildTimelinePhotoImage(
+        url: null,
+        thumbUrl: null,
+        localPath: coverPath,
+        fit: BoxFit.cover,
+      );
+    }
+    return cover == null
+                          ? Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white.withValues(alpha: 0.10),
+                                    Colors.white.withValues(alpha: 0.04),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.photo_album_outlined,
+                                  color: Colors.white70,
+                                  size: 48,
+                                ),
+                              ),
+                            )
+                          : buildTimelinePhotoImage(
+                              url: cover.serverUrl,
+                              thumbUrl: cover.thumbUrl,
+                              localPath: cover.localPath,
+                              localThumbnailPath: cover.localThumbnailPath,
+                              memoryBytes: cover.bytes,
+                              fit: BoxFit.cover,
+                            );
   }
 
   String _dateRangeLabel(DateTime start, DateTime end) {

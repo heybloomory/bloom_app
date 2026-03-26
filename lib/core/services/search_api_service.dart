@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'api_client.dart';
 
@@ -13,7 +12,7 @@ class SearchApiService {
       query: {'q': query},
     );
 
-    List<Map<String, dynamic>> _asList(dynamic value) {
+    List<Map<String, dynamic>> asList(dynamic value) {
       if (value is List) {
         return value
             .whereType<Map>()
@@ -23,8 +22,8 @@ class SearchApiService {
       return const [];
     }
 
-    final memories = _asList(data['memories']);
-    final albums = _asList(data['albums']);
+    final memories = asList(data['memories']);
+    final albums = asList(data['albums']);
 
     return {
       'memories': memories,

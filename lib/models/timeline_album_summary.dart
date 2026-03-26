@@ -26,7 +26,15 @@ class TimelineAlbumSummary {
           photo.syncStatus == PhotoSyncStatus.uploading)
       .length;
 
-  Photo? get coverPhoto => photos.isNotEmpty ? photos.first : null;
+  Photo? get coverPhoto {
+    final id = (album.coverPhotoId ?? '').trim();
+    if (id.isNotEmpty) {
+      for (final p in photos) {
+        if (p.id == id) return p;
+      }
+    }
+    return photos.isNotEmpty ? photos.first : null;
+  }
 
   DateTime? get latestPhotoAt =>
       photos.isNotEmpty ? photos.first.createdAt : album.updatedAt;
