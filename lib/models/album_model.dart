@@ -1,5 +1,7 @@
 /// Local-first album for the Timeline.
 /// Stored in Hive. [backendAlbumId] is set after first successful sync to the API.
+import 'dart:typed_data';
+
 const Object _timelineAlbumUnset = Object();
 
 class TimelineAlbum {
@@ -10,6 +12,11 @@ class TimelineAlbum {
   final String? backendAlbumId;
   final String? parentAlbumId;
   final int level;
+  /// True after user ran optional "Sync to Cloud" for this album tree.
+  final bool isSynced;
+  final String? coverPhotoId;
+  final Uint8List? coverBytes;
+  final String? coverPath;
 
   const TimelineAlbum({
     required this.id,
@@ -19,6 +26,10 @@ class TimelineAlbum {
     this.backendAlbumId,
     this.parentAlbumId,
     this.level = 1,
+    this.isSynced = false,
+    this.coverPhotoId,
+    this.coverBytes,
+    this.coverPath,
   });
 
   Map<String, dynamic> toMap() {
@@ -30,6 +41,10 @@ class TimelineAlbum {
       'backendAlbumId': backendAlbumId,
       'parentAlbumId': parentAlbumId,
       'level': level,
+      'isSynced': isSynced,
+      'coverPhotoId': coverPhotoId,
+      'coverBytes': coverBytes,
+      'coverPath': coverPath,
     };
   }
 
@@ -62,6 +77,14 @@ class TimelineAlbum {
       backendAlbumId: map['backendAlbumId']?.toString(),
       parentAlbumId: map['parentAlbumId']?.toString(),
       level: (map['level'] as num?)?.toInt() ?? 1,
+      isSynced: map['isSynced'] == true,
+      coverPhotoId: map['coverPhotoId']?.toString(),
+      coverBytes: map['coverBytes'] is Uint8List
+          ? map['coverBytes'] as Uint8List
+          : (map['coverBytes'] is List
+              ? Uint8List.fromList((map['coverBytes'] as List).cast<int>())
+              : null),
+      coverPath: map['coverPath']?.toString(),
     );
   }
 
@@ -73,6 +96,10 @@ class TimelineAlbum {
     Object? backendAlbumId = _timelineAlbumUnset,
     Object? parentAlbumId = _timelineAlbumUnset,
     int? level,
+    bool? isSynced,
+    Object? coverPhotoId = _timelineAlbumUnset,
+    Object? coverBytes = _timelineAlbumUnset,
+    Object? coverPath = _timelineAlbumUnset,
   }) {
     return TimelineAlbum(
       id: id ?? this.id,
@@ -86,6 +113,16 @@ class TimelineAlbum {
           ? this.parentAlbumId
           : parentAlbumId as String?,
       level: level ?? this.level,
+      isSynced: isSynced ?? this.isSynced,
+      coverPhotoId: identical(coverPhotoId, _timelineAlbumUnset)
+          ? this.coverPhotoId
+          : coverPhotoId as String?,
+      coverBytes: identical(coverBytes, _timelineAlbumUnset)
+          ? this.coverBytes
+          : coverBytes as Uint8List?,
+      coverPath: identical(coverPath, _timelineAlbumUnset)
+          ? this.coverPath
+          : coverPath as String?,
     );
   }
 }

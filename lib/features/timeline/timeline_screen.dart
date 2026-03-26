@@ -1,16 +1,24 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/glass_container.dart';
 import '../../layout/main_app_shell.dart';
-import '../../models/album_model.dart';
-import '../../models/timeline_album_summary.dart';
+import '../../models/photo_model.dart';
+import '../../models/smart_media_models.dart';
 import '../../routes/app_routes.dart';
 import '../../services/local_album_service.dart';
 import '../../services/local_photo_store.dart';
-import 'album_detail_screen.dart';
-import 'album_grid.dart';
-import 'timeline_search_filter_screen.dart';
+import '../../services/local_smart_media_processing_engine.dart';
+import '../../services/local_smart_search.dart';
+import '../../services/sync/sync_queue_service.dart';
+import '../import/import_studio_screen.dart';
+import 'timeline_smart_viewer.dart';
+import 'timeline_photo_image.dart';
 
 class TimelineScreen extends StatefulWidget {
   const TimelineScreen({super.key});
@@ -20,595 +28,849 @@ class TimelineScreen extends StatefulWidget {
 }
 
 class _TimelineScreenState extends State<TimelineScreen> {
-  List<TimelineAlbumSummary> _albums = const <TimelineAlbumSummary>[];
+  SmartProcessingResult _result = const SmartProcessingResult(
+    media: [],
+    events: [],
+    duplicateGroups: {},
+  );
   bool _loading = false;
   bool _disposed = false;
+  Set<String> _syncedAlbumIds = <String>{};
+  Map<String, PhotoSyncStatus> _photoSync = {};
+  Map<String, Uint8List> _photoBytes = {};
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  bool _showIntro = false;
+  bool _introPlayed = false;
+  DateTime? _importHeaderUntil;
+  static const _lastImportPhotoIdsKey = 'last_import_photo_ids_v1';
+  static const _lastImportAlbumIdsKey = 'last_import_album_ids_v1';
+  static const _lastImportAtKey = 'last_import_at_v1';
 
-  void _safeSetState(VoidCallback fn) {
-    if (_disposed || !mounted) {
-      debugPrint('[UI] mounted check failed (TimelineScreen)');
-      return;
-    }
-    setState(fn);
+  Future<void> _maybeShowFirstTimeHint() async {
+    if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'timeline_hint_seen_v1';
+    final seen = prefs.getBool(key) ?? false;
+    if (seen) return;
+    await prefs.setBool(key, true);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('✨ Your memories are organized automatically'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _safeSetState(VoidCallback fn) {
+    if (_disposed || !mounted) return;
+    setState(fn);
   }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startHeavyWork());
-  }
-
-  Future<void> _startHeavyWork() async {
-    if (_disposed || !mounted) return;
-    await _loadAlbums();
-  }
-
-  Future<void> _loadAlbums() async {
-    if (_disposed) return;
-    _safeSetState(() {
-      _loading = true;
+    _searchCtrl.addListener(() {
+      _safeSetState(() => _searchQuery = _searchCtrl.text);
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTimeline());
+  }
 
+  Future<void> _loadTimeline() async {
+    if (_disposed) return;
+    _safeSetState(() => _loading = true);
     try {
       await LocalPhotoStore.init();
-      if (_disposed) return;
-      final albums = LocalAlbumService.listRootAlbumSummaries();
+      await SyncQueueService.instance.init();
+      final r = await LocalSmartMediaProcessingEngine.process();
+      PaintingBinding.instance.imageCache.maximumSize = 120;
+      PaintingBinding.instance.imageCache.maximumSizeBytes = 96 << 20;
+      final synced = LocalPhotoStore
+          .listAlbums()
+          .where((a) => a.isSynced)
+          .map((a) => a.id)
+          .toSet();
+      final syncMap = <String, PhotoSyncStatus>{};
+      final byteMap = <String, Uint8List>{};
+      for (final p in LocalPhotoStore.listAllPhotos()) {
+        syncMap[p.id] = p.syncStatus;
+        if (p.bytes != null && p.bytes!.isNotEmpty) {
+          byteMap[p.id] = p.bytes!;
+        }
+      }
       if (_disposed) return;
       _safeSetState(() {
-        _albums = albums;
+        _result = r;
+        _syncedAlbumIds = synced;
+        _photoSync = syncMap;
+        _photoBytes = byteMap;
+        if (!_introPlayed) {
+          _showIntro = true;
+          _introPlayed = true;
+        }
       });
+      unawaited(_maybeShowFirstTimeHint());
     } catch (e) {
       if (_disposed || !mounted) return;
-      _safeSetState(() {
-        _albums = const <TimelineAlbumSummary>[];
-      });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load local albums: $e')),
+        SnackBar(content: Text('Timeline load failed: $e')),
       );
     } finally {
       if (!_disposed && mounted) {
-        setState(() {
-          _loading = false;
-        });
+        setState(() => _loading = false);
       }
     }
   }
 
-  Future<void> _createAlbum() async {
-    final titleCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
+  ({List<SmartEvent> events, List<SmartMediaItem> items}) _visibleData() {
+    var items = List<SmartMediaItem>.from(_result.media);
+    var events = List<SmartEvent>.from(_result.events);
 
-    final created = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create album'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: titleCtrl,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(
-              labelText: 'Album title',
-              hintText: 'Weekend trip, Family, Favorites...',
-            ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Enter an album title';
-              }
-              return null;
-            },
-            onFieldSubmitted: (_) {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.pop(context, true);
-              }
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.pop(context, true);
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    final searched = LocalSmartSearch.search(
+      query: _searchQuery,
+      items: items,
+      events: events,
     );
+    items = searched.photos;
+    events = searched.events;
 
-    if (created != true || _disposed || !mounted) return;
+    final eventIds = items.map((m) => m.eventId).whereType<String>().toSet();
+    events = events.where((e) => eventIds.contains(e.id)).toList()
+      ..sort((a, b) => b.start.compareTo(a.start));
 
-    try {
-      await LocalPhotoStore.init();
-    } catch (e) {
-      if (_disposed || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open local library: $e')),
-      );
-      return;
-    }
-
-    late final TimelineAlbum album;
-    try {
-      album = LocalAlbumService.createAlbum(titleCtrl.text.trim());
-    } catch (e) {
-      if (_disposed || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not create album: $e')),
-      );
-      return;
-    }
-    if (_disposed || !mounted) return;
-    await _loadAlbums();
-    _openAlbum(
-      TimelineAlbumSummary(album: album, photos: const []),
-    );
+    return (events: events, items: items);
   }
 
-  Future<void> _openSearchAndFilter() async {
-    final selected = await Navigator.push<TimelineAlbumSummary>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const TimelineSearchFilterScreen(),
-      ),
-    );
-    if (_disposed || !mounted || selected == null) return;
-    _openAlbum(selected);
+  Future<void> _toggleFavorite(SmartMediaItem m) async {
+    await LocalPhotoStore.init();
+    final p = LocalPhotoStore.getPhoto(m.photoId);
+    if (p == null) return;
+    LocalPhotoStore.updatePhoto(p.copyWith(isLikedByMe: !p.isLikedByMe));
+    await _loadTimeline();
   }
 
-  void _openAlbum(TimelineAlbumSummary album) {
+  void _openItem(SmartMediaItem m, List<SmartMediaItem> contextItems) {
+    final photos = <Photo>[];
+    for (final x in contextItems) {
+      final p = LocalPhotoStore.getPhoto(x.photoId);
+      if (p != null) photos.add(p);
+    }
+    if (photos.isEmpty) return;
+    final idx = photos.indexWhere((p) => p.id == m.photoId);
     Navigator.push<void>(
       context,
-      MaterialPageRoute(
-        builder: (_) => TimelineAlbumDetailScreen(
-          albumId: album.album.id,
-          albumTitle: album.album.title,
+      MaterialPageRoute<void>(
+        builder: (_) => TimelineSmartViewer(
+          photos: photos,
+          initialIndex: idx >= 0 ? idx : 0,
         ),
       ),
-    ).then((_) {
-      if (_disposed || !mounted) return;
-      _loadAlbums();
-    });
+    );
   }
+
+  Future<void> _openImportStudio() async {
+    final imported = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute<bool>(
+        builder: (_) => const ImportStudioScreen(),
+      ),
+    );
+    await _loadTimeline();
+    if (imported == true && mounted) {
+      _safeSetState(() {
+        _importHeaderUntil =
+            DateTime.now().add(const Duration(milliseconds: 2300));
+      });
+      unawaited(
+        Future<void>.delayed(const Duration(milliseconds: 2300)).then((_) {
+          if (!mounted) return;
+          if (_importHeaderUntil == null) return;
+          if (DateTime.now().isBefore(_importHeaderUntil!)) return;
+          _safeSetState(() => _importHeaderUntil = null);
+        }),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('✨ Your memories are ready'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: _undoLastImport,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _undoLastImport() async {
+    final prefs = await SharedPreferences.getInstance();
+    final photoIds =
+        prefs.getStringList(_lastImportPhotoIdsKey) ?? const <String>[];
+    final albumIds =
+        prefs.getStringList(_lastImportAlbumIdsKey) ?? const <String>[];
+    final at = prefs.getInt(_lastImportAtKey) ?? 0;
+    if (at == 0 || (photoIds.isEmpty && albumIds.isEmpty)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to undo')),
+      );
+      return;
+    }
+
+    await LocalPhotoStore.init();
+    for (final id in photoIds) {
+      LocalPhotoStore.deletePhoto(id);
+    }
+    for (final id in albumIds.reversed) {
+      final photos = LocalPhotoStore.listPhotosInAlbum(id);
+      if (photos.isEmpty) {
+        LocalPhotoStore.deleteAlbum(id);
+      }
+    }
+    await prefs.remove(_lastImportPhotoIdsKey);
+    await prefs.remove(_lastImportAlbumIdsKey);
+    await prefs.remove(_lastImportAtKey);
+    await _loadTimeline();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Import undone')),
+    );
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
-    final albumCount = _albums.length;
-    final photoCount =
-        _albums.fold<int>(0, (total, album) => total + album.photoCount);
-    final pendingCount =
-        _albums.fold<int>(0, (total, album) => total + album.pendingCount);
+    final data = _visibleData();
+    final mediaCount = _result.media.length;
+    // Keep computed counts for hero and empty-state.
+    final user = FirebaseAuth.instance.currentUser;
+    final nameRaw = (user?.displayName ?? '').trim();
+    final fallback = (user?.email ?? 'there').split('@').first;
+    final displayName = nameRaw.isNotEmpty ? nameRaw : fallback;
+    final now = DateTime.now();
+    final weekFrom = now.subtract(const Duration(days: 7));
+    final momentsThisWeek =
+        data.items.where((m) => m.takenAt.isAfter(weekFrom)).length;
+    final lastTakenAt = data.items.isEmpty
+        ? null
+        : data.items
+            .map((m) => m.takenAt)
+            .reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastAddedDaysAgo = lastTakenAt == null
+        ? null
+        : now.difference(lastTakenAt).inDays.clamp(0, 3650);
+    final heroLine = momentsThisWeek > 0
+        ? 'You captured $momentsThisWeek moment${momentsThisWeek == 1 ? '' : 's'} this week'
+        : (lastAddedDaysAgo == null
+            ? null
+            : (lastAddedDaysAgo == 0
+                ? 'Last memory added today'
+                : 'Last memory added $lastAddedDaysAgo day${lastAddedDaysAgo == 1 ? '' : 's'} ago'));
 
     return MainAppShell(
       currentRoute: AppRoutes.timeline,
-      child: Column(
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        offset: _showIntro ? Offset.zero : const Offset(0, 0.04),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 240),
+          opacity: _showIntro ? 1 : 0,
+          child: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 28, 20, 0),
-            child: _TimelineTopBar(),
-          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: _TimelineHeader(
-              albumCount: albumCount,
-              photoCount: photoCount,
-              pendingCount: pendingCount,
-              onRefresh: _loadAlbums,
-              onCreateAlbum: _createAlbum,
-              onOpenSearch: _openSearchAndFilter,
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
+            child: _TimelineHero(
+              name: displayName,
+              heroLine: heroLine,
+              mediaCount: mediaCount,
+              albumCount: LocalAlbumService.listRootAlbumSummaries().length,
+              onInvite: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invite Friends')),
+                );
+              },
             ),
           ),
           if (_loading)
             const Expanded(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (data.items.isEmpty)
+            Expanded(
               child: Center(
-                child: CircularProgressIndicator(),
+                child: GlassContainer(
+                  radius: 28,
+                  padding: const EdgeInsets.all(28),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.photo_camera_outlined,
+                          color: Colors.white70,
+                          size: 46,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Turn your photos into memories ✨',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Import your photos and we’ll organize everything for you',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          child: AppPrimaryButton(
+                            onPressed: _openImportStudio,
+                            icon: Icons.add_photo_alternate_outlined,
+                            text: 'Add Media',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             )
           else
             Expanded(
-              child: AlbumGrid(
-                albums: _albums,
-                onAlbumTap: _openAlbum,
+              child: Column(
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    ),
+                    child: (_importHeaderUntil != null &&
+                            DateTime.now().isBefore(_importHeaderUntil!))
+                        ? const Padding(
+                            padding: EdgeInsets.fromLTRB(20, 0, 20, 10),
+                            child: GlassContainer(
+                              key: ValueKey('import_ready_header'),
+                              radius: 18,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '✨ Your memories are ready',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : const SizedBox(
+                            key: ValueKey('import_ready_header_empty'),
+                            height: 0,
+                          ),
+                  ),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: GestureDetector(
+                        key: const ValueKey('grid_clean'),
+                        child: CustomScrollView(
+                        key: const PageStorageKey<String>('timeline_smart_scroll'),
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
+                        slivers: [
+                          ..._monthSections(data.items),
+                        ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],
       ),
+        ),
+      ),
     );
+  }
+
+  List<Widget> _monthSections(List<SmartMediaItem> items) {
+      final byMonth = <String, List<SmartMediaItem>>{};
+    for (final m in items) {
+      final key = DateFormat('MMMM y').format(m.takenAt);
+      byMonth.putIfAbsent(key, () => []).add(m);
+    }
+    final keys = byMonth.keys.toList();
+    keys.sort((a, b) {
+      final aDt = DateFormat('MMMM y').parse(a);
+      final bDt = DateFormat('MMMM y').parse(b);
+      return bDt.compareTo(aDt);
+    });
+
+    final out = <Widget>[];
+    for (final key in keys) {
+      final list = byMonth[key]!..sort((a, b) => b.takenAt.compareTo(a.takenAt));
+      out.add(
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Text(
+              key,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      );
+      out.add(
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 6,
+              childAspectRatio: 1,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, i) {
+                final m = list[i];
+                final tile = _MediaTile(
+                  item: m,
+                  isSynced: _syncedAlbumIds.contains(m.albumId),
+                  photoSync: _photoSync[m.photoId],
+                  memoryBytes: _photoBytes[m.photoId],
+                  onTap: () => _openItem(m, list),
+                  onLongPress: () => _toggleFavorite(m),
+                );
+                if (i >= 20) return tile;
+                final duration =
+                    Duration(milliseconds: 200 + (i.clamp(0, 19) * 16));
+                return TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: duration,
+                  curve: Curves.easeOutCubic,
+                  builder: (context, t, child) => Opacity(
+                    opacity: t,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - t) * 10),
+                      child: child,
+                    ),
+                  ),
+                  child: tile,
+                );
+              },
+              childCount: list.length,
+            ),
+          ),
+        ),
+      );
+    }
+    return out;
   }
 }
 
-class _TimelineTopBar extends StatelessWidget {
-  const _TimelineTopBar();
+class _TimelineHero extends StatelessWidget {
+  final String name;
+  final String? heroLine;
+  final int mediaCount;
+  final int albumCount;
+  final VoidCallback onInvite;
 
-  Future<void> _openMenuSheet(BuildContext context) async {
-    final selectedRoute = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF1A0E2A),
-      builder: (context) {
-        return const SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Menu',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                SizedBox(height: 14),
-                _MenuRouteTile(
-                  icon: Icons.timeline,
-                  label: 'Timeline',
-                  route: AppRoutes.dashboard,
-                ),
-                _MenuRouteTile(
-                  icon: Icons.card_giftcard,
-                  label: 'Gift',
-                  route: AppRoutes.gifts,
-                ),
-                _MenuRouteTile(
-                  icon: Icons.design_services,
-                  label: 'Service',
-                  route: AppRoutes.service,
-                ),
-                _MenuRouteTile(
-                  icon: Icons.menu_book,
-                  label: 'Learn',
-                  route: AppRoutes.learn,
-                ),
-                _MenuRouteTile(
-                  icon: Icons.lock_outline,
-                  label: 'Vault',
-                  route: AppRoutes.vault,
-                ),
-                _MenuRouteTile(
-                  icon: Icons.settings,
-                  label: 'Settings',
-                  route: AppRoutes.settings,
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (selectedRoute == null || !context.mounted) return;
-    if (ModalRoute.of(context)?.settings.name == selectedRoute) return;
-    Navigator.pushReplacementNamed(context, selectedRoute);
-  }
+  const _TimelineHero({
+    required this.name,
+    required this.heroLine,
+    required this.mediaCount,
+    required this.albumCount,
+    required this.onInvite,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final photoUrl = (user?.photoURL ?? '').trim();
-    final displayName = (user?.displayName ?? '').trim();
-    final email = (user?.email ?? '').trim();
-    final seed = displayName.isNotEmpty ? displayName : email;
-    final initials = _initialsFrom(seed);
-
-    return Row(
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Good morning'
+        : hour < 18
+            ? 'Good afternoon'
+            : 'Good evening';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _TopBarButton(
-          icon: Icons.menu,
-          onTap: () => _openMenuSheet(context),
-        ),
-        const Spacer(),
-        GestureDetector(
-          onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
-          child: Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.16),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.16),
-                  blurRadius: 12,
-                  offset: const Offset(0, 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$greeting, $name 👋',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      (heroLine ?? 'Relive your best memories today').trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-            child: ClipOval(
-              child: photoUrl.isNotEmpty
-                  ? Image.network(
-                      photoUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          _ProfileFallback(initials: initials),
-                    )
-                  : _ProfileFallback(initials: initials),
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+              ),
+              child: Center(
+                child: Text(
+                  name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : 'U',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
             ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        GlassContainer(
+          radius: 24,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '✨ Relive your best moments',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '$mediaCount memories • $albumCount albums',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  AppSecondaryButton(
+                    onPressed: onInvite,
+                    text: 'Invite Friends',
+                    icon: Icons.ios_share_outlined,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Invite friends to relive this memory ❤️',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '$mediaCount memories organized',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.70),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: AppSecondaryButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Explore Memories')),
+                    );
+                  },
+                  icon: Icons.auto_awesome_outlined,
+                  text: 'Explore Memories',
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
-
-  static String _initialsFrom(String value) {
-    final words = value
-        .split(RegExp(r'\s+'))
-        .where((part) => part.trim().isNotEmpty)
-        .toList();
-    if (words.isEmpty) return 'U';
-    if (words.length == 1) {
-      final text = words.first.trim();
-      return text.substring(0, text.length >= 2 ? 2 : 1).toUpperCase();
-    }
-    return '${words.first[0]}${words[1][0]}'.toUpperCase();
-  }
 }
 
-class _TimelineHeader extends StatelessWidget {
-  final int albumCount;
-  final int photoCount;
-  final int pendingCount;
-  final VoidCallback onRefresh;
-  final VoidCallback onCreateAlbum;
-  final VoidCallback onOpenSearch;
-
-  const _TimelineHeader({
-    required this.albumCount,
-    required this.photoCount,
-    required this.pendingCount,
-    required this.onRefresh,
-    required this.onCreateAlbum,
-    required this.onOpenSearch,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassContainer(
-      radius: 30,
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Timeline Albums',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              _HeaderIconButton(
-                icon: Icons.tune,
-                tooltip: 'Filter',
-                onTap: onOpenSearch,
-              ),
-              const SizedBox(width: 8),
-              _HeaderIconButton(
-                icon: Icons.refresh,
-                tooltip: 'Refresh',
-                onTap: onRefresh,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _HeaderChip(
-                icon: Icons.folder_open_outlined,
-                label: '$albumCount albums',
-              ),
-              _HeaderChip(
-                icon: Icons.image_outlined,
-                label: '$photoCount images',
-              ),
-              if (pendingCount > 0)
-                _HeaderChip(
-                  icon: Icons.cloud_upload_outlined,
-                  label: '$pendingCount pending',
-                  color: const Color(0xFFF2C66D),
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ElevatedButton.icon(
-              onPressed: onCreateAlbum,
-              icon: const Icon(Icons.create_new_folder_outlined),
-              label: const Text('Create Album'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TopBarButton extends StatelessWidget {
-  final IconData icon;
+class _MediaTile extends StatelessWidget {
+  final SmartMediaItem item;
+  final bool isSynced;
+  final PhotoSyncStatus? photoSync;
+  final Uint8List? memoryBytes;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
-  const _TopBarButton({
-    required this.icon,
+  const _MediaTile({
+    required this.item,
+    required this.isSynced,
+    this.photoSync,
+    this.memoryBytes,
     required this.onTap,
+    required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
+    final path = item.thumbPath ?? item.localPath;
+    final aiTag = _aiPreviewTag(item);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Opacity(opacity: t, child: child),
+      child: Hero(
+        tag: 'smart-photo-${item.photoId}',
+        child: _PressScale(
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.10),
-          ),
-        ),
-        child: Icon(icon, color: Colors.white, size: 20),
-      ),
-    );
-  }
-}
-
-class _ProfileFallback extends StatelessWidget {
-  final String initials;
-
-  const _ProfileFallback({
-    required this.initials,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF7B61FF), Color(0xFF5030B5)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        initials,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-        ),
-      ),
-    );
-  }
-}
-
-class _MenuRouteTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String route;
-
-  const _MenuRouteTile({
-    required this.icon,
-    required this.label,
-    required this.route,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: Colors.white),
-      title: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-      onTap: () => Navigator.pop(context, route),
-    );
-  }
-}
-
-class _HeaderChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? color;
-
-  const _HeaderChip({
-    required this.icon,
-    required this.label,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final chipColor = color ?? Colors.white;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: chipColor),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: chipColor,
-              fontWeight: FontWeight.w600,
+          onTap: onTap,
+          onLongPress: () async {
+            await HapticFeedback.lightImpact();
+            onLongPress();
+          },
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  buildTimelinePhotoImage(
+                    url: null,
+                    thumbUrl: null,
+                    localPath: path,
+                    localThumbnailPath: item.thumbPath,
+                    memoryBytes: memoryBytes,
+                    fit: BoxFit.cover,
+                  ),
+                  if (item.isVideo)
+                    const Align(
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.play_circle_fill,
+                        color: Colors.white,
+                        size: 36,
+                      ),
+                    ),
+                  if (item.isDuplicate)
+                    Positioned(
+                      left: 4,
+                      top: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'Dup',
+                          style: TextStyle(color: Colors.white, fontSize: 9),
+                        ),
+                      ),
+                    ),
+                  if (item.favorite)
+                    Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: Icon(
+                        Icons.favorite,
+                        color: Colors.pinkAccent.shade100,
+                        size: 18,
+                      ),
+                    ),
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: _SyncGlyph(
+                      albumSynced: isSynced,
+                      photoSync: photoSync,
+                    ),
+                  ),
+                  if ((aiTag ?? '').isNotEmpty)
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          aiTag!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
+
+  String? _aiPreviewTag(SmartMediaItem m) {
+    final preferred = <String>['beach', 'night', 'trip'];
+    for (final p in preferred) {
+      final hit = m.tagNames.where((t) => t.toLowerCase() == p).toList();
+      if (hit.isNotEmpty) {
+        final v = hit.first;
+        return v.substring(0, 1).toUpperCase() + v.substring(1);
+      }
+    }
+    if (m.tagNames.isEmpty) return null;
+    final v = m.tagNames.first;
+    if (v.isEmpty) return null;
+    return v.substring(0, 1).toUpperCase() + v.substring(1);
+  }
 }
 
-class _HeaderIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
+class _PressScale extends StatefulWidget {
+  final Widget child;
   final VoidCallback onTap;
+  final Future<void> Function()? onLongPress;
+  final BorderRadius borderRadius;
 
-  const _HeaderIconButton({
-    required this.icon,
-    required this.tooltip,
+  const _PressScale({
+    required this.child,
     required this.onTap,
+    required this.borderRadius,
+    this.onLongPress,
   });
 
   @override
+  State<_PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<_PressScale> {
+  bool _down = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 110),
+      scale: _down ? 0.985 : 1,
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.10),
-            ),
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 20,
-          ),
-        ),
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress == null ? null : () => widget.onLongPress!(),
+        onHighlightChanged: (v) => setState(() => _down = v),
+        borderRadius: widget.borderRadius,
+        child: widget.child,
       ),
     );
   }
 }
+
+class _SyncGlyph extends StatelessWidget {
+  final bool albumSynced;
+  final PhotoSyncStatus? photoSync;
+
+  const _SyncGlyph({
+    required this.albumSynced,
+    this.photoSync,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = photoSync;
+    String emoji = '📱';
+    if (s == PhotoSyncStatus.synced || (albumSynced && s == null)) {
+      emoji = '☁️';
+    } else if (s == PhotoSyncStatus.uploading) {
+      emoji = '🔄';
+    } else if (s == PhotoSyncStatus.failed) {
+      emoji = '⚠️';
+    }
+    return Container(
+      width: 20,
+      height: 20,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        shape: BoxShape.circle,
+      ),
+      child: Text(emoji, style: const TextStyle(fontSize: 12)),
+    );
+  }
+}
+
+// NOTE: Legacy timeline "tool" widgets removed in UX refactor.

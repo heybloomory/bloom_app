@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 
 import 'api_client.dart';
 
@@ -25,7 +24,7 @@ class TimelineApiService {
     if (memories is List) {
       return memories
           .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e as Map))
+          .map((e) => Map<String, dynamic>.from(e))
           .toList();
     }
 

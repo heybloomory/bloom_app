@@ -49,5 +49,14 @@
 	<string>This app needs access to your photo library to list and select your photos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>This app needs permission to save selected photos to your albums.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bloomory</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

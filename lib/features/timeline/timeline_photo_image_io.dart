@@ -37,13 +37,19 @@ Widget _buildTimelinePhotoImageBody({
   BoxFit fit = BoxFit.cover,
   Uint8List? memoryBytes,
 }) {
-  if (localPath.startsWith('web_') &&
-      memoryBytes != null &&
-      memoryBytes.isNotEmpty) {
+  if (memoryBytes != null && memoryBytes.isNotEmpty) {
     return Image.memory(
       memoryBytes,
       fit: fit,
-      errorBuilder: (_, __, ___) => _fromPath(localPath, fit),
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded) return child;
+        return AnimatedOpacity(
+          opacity: frame == null ? 0 : 1,
+          duration: const Duration(milliseconds: 200),
+          child: child,
+        );
+      },
+      errorBuilder: (_, __, ___) => _placeholder(fit),
     );
   }
   final effectiveUrl = thumbUrl ?? url;
@@ -51,6 +57,14 @@ Widget _buildTimelinePhotoImageBody({
     return Image.network(
       effectiveUrl,
       fit: fit,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded) return child;
+        return AnimatedOpacity(
+          opacity: frame == null ? 0 : 1,
+          duration: const Duration(milliseconds: 200),
+          child: child,
+        );
+      },
       errorBuilder: (_, __, ___) => _fromPath(localPath, fit),
     );
   }
@@ -77,6 +91,14 @@ Widget _fromPath(String path, BoxFit fit) {
     return Image.file(
       file,
       fit: fit,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded) return child;
+        return AnimatedOpacity(
+          opacity: frame == null ? 0 : 1,
+          duration: const Duration(milliseconds: 200),
+          child: child,
+        );
+      },
       errorBuilder: (_, __, ___) => _placeholder(fit),
     );
   } catch (e, st) {

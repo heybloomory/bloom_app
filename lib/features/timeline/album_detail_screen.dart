@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/glass_container.dart';
 import '../../layout/main_app_shell.dart';
 import '../../models/album_model.dart';
@@ -10,9 +11,13 @@ import '../../models/timeline_album_summary.dart';
 import '../../routes/app_routes.dart';
 import '../../services/album_media_picker_service.dart';
 import '../../services/local_album_media_import_service.dart';
+import '../../core/services/album_chat_socket.dart';
+import '../../core/services/album_api_service.dart';
+import '../chat/album_chat_screen.dart';
+import '../../services/album_optional_cloud_sync.dart';
 import '../../services/local_album_service.dart';
 import '../../services/local_photo_store.dart';
-import '../../services/photo_sync_service.dart';
+import '../../services/sync/sync_queue_service.dart';
 import 'timeline_photo_image.dart';
 
 class TimelineAlbumDetailScreen extends StatefulWidget {
@@ -37,7 +42,18 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
   bool _loading = true;
   bool _importing = false;
   bool _syncing = false;
+  double _queueProgress = 0;
+  bool _queueDraining = false;
+  String? _chatPreview;
+  List<Map<String, dynamic>> _members = const [];
   bool _disposed = false;
+
+  void _onQueueTick() {
+    _safeSetState(() {
+      _queueProgress = SyncQueueService.instance.progress.value;
+      _queueDraining = SyncQueueService.instance.isDraining.value;
+    });
+  }
 
   void _safeSetState(VoidCallback fn) {
     if (_disposed || !mounted) {
@@ -60,6 +76,14 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
             LocalPhotoStore.updatePhoto(photo);
             await _reload();
           },
+          onSetAsCover: (photo) async {
+            LocalPhotoStore.setAlbumCover(albumId: widget.albumId, photo: photo);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Album cover updated')),
+            );
+            await _reload();
+          },
         ),
       ),
     );
@@ -70,12 +94,16 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
   @override
   void dispose() {
     _disposed = true;
+    SyncQueueService.instance.progress.removeListener(_onQueueTick);
+    SyncQueueService.instance.isDraining.removeListener(_onQueueTick);
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
+    SyncQueueService.instance.progress.addListener(_onQueueTick);
+    SyncQueueService.instance.isDraining.addListener(_onQueueTick);
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
   }
 
@@ -89,11 +117,26 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
       final album = LocalPhotoStore.getAlbum(widget.albumId);
       final photos = LocalPhotoStore.listPhotosInAlbum(widget.albumId);
       final childAlbums = LocalAlbumService.listChildAlbumSummaries(widget.albumId);
+      final chatHistory = AlbumChatSocket.forAlbum(widget.albumId).history;
+      final latest = chatHistory.isNotEmpty ? chatHistory.last : null;
+      List<Map<String, dynamic>> members = const [];
+      final backendId = album?.backendAlbumId ?? '';
+      if (backendId.isNotEmpty) {
+        try {
+          members = await AlbumApiService.listAlbumMembers(backendId);
+        } catch (_) {}
+      }
       if (_disposed || !mounted) return;
       _safeSetState(() {
         _album = album;
         _photos = photos;
         _childAlbums = childAlbums;
+        _chatPreview = latest == null
+            ? null
+            : ((latest.emoji ?? '').isNotEmpty
+                ? '${latest.sender}: ${latest.emoji}'
+                : '${latest.sender}: ${latest.text}');
+        _members = members;
         _loading = false;
       });
     } catch (e) {
@@ -145,17 +188,17 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
           ),
         ),
         actions: [
-          TextButton(
+          AppSecondaryButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            text: 'Cancel',
           ),
-          ElevatedButton(
+          AppPrimaryButton(
             onPressed: () {
               if (formKey.currentState?.validate() ?? false) {
                 Navigator.pop(context, true);
               }
             },
-            child: const Text('Create'),
+            text: 'Create',
           ),
         ],
       ),
@@ -245,11 +288,11 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
 
     _safeSetState(() => _syncing = true);
     try {
-      await PhotoSyncService.syncAlbum(widget.albumId);
+      await AlbumOptionalCloudSync.syncAlbumToCloud(widget.albumId);
       await _reload();
       if (_disposed || !mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Album synced to server')),
+        const SnackBar(content: Text('Your memories are ready to share 🚀')),
       );
     } catch (e) {
       await _reload();
@@ -262,6 +305,86 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
         setState(() => _syncing = false);
       }
     }
+  }
+
+  void _shareAlbumPlaceholder() {
+    _shareAlbum();
+  }
+
+  Future<void> _shareAlbum() async {
+    final album = _album;
+    if (!mounted || album == null) return;
+    if (!album.isSynced || (album.backendAlbumId ?? '').isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sync album to share')),
+      );
+      return;
+    }
+    try {
+      final shared = await AlbumApiService.shareAlbumWithInvite(album.backendAlbumId!);
+      final shareUrl = shared['shareUrl'] ?? '';
+      final inviteCode = shared['inviteCode'] ?? '';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Shared album'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'This album contains your best memories ✨',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Anyone with link can join this album',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 10),
+              SelectableText(shareUrl),
+              if (inviteCode.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Invite code: $inviteCode'),
+              ],
+            ],
+          ),
+          actions: [
+            AppSecondaryButton(
+              onPressed: () => Navigator.pop(context),
+              text: 'Close',
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Album shared successfully 🎉\nInvite friends to relive this memory together ❤️',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not share album: $e')),
+      );
+    }
+  }
+
+  void _openAlbumChatPlaceholder() {
+    AlbumChatSocket.forAlbum(widget.albumId).connectIfNeeded();
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AlbumChatScreen(
+          albumId: widget.albumId,
+          albumTitle: _album?.title ?? widget.albumTitle,
+        ),
+      ),
+    );
   }
 
   @override
@@ -304,15 +427,21 @@ class _TimelineAlbumDetailScreenState extends State<TimelineAlbumDetailScreen> {
                     pendingCount: pendingCount,
                     syncedCount: syncedCount,
                     failedCount: failedCount,
+                    isCloudSynced: album?.isSynced ?? false,
                     onBack: () => Navigator.pop(context),
                     onAddPhotos: _addPhotos,
                     onSync: _syncToServer,
+                    onShare: _shareAlbumPlaceholder,
+                    onChat: _openAlbumChatPlaceholder,
                     onCreateSubAlbum: album?.level == 1 ? _createSubAlbum : null,
                     importing: _importing,
-                    syncing: _syncing,
+                    syncing: _syncing || _queueDraining,
+                    syncProgress: _queueProgress,
                     latestUpdate: album?.updatedAt,
                     childAlbumCount: _childAlbums.length,
                     level: album?.level ?? 1,
+                    chatPreview: _chatPreview,
+                    members: _members,
                   ),
                   const SizedBox(height: 18),
                   Expanded(
@@ -362,14 +491,20 @@ class _AlbumHero extends StatelessWidget {
   final int pendingCount;
   final int syncedCount;
   final int failedCount;
+  final bool isCloudSynced;
   final bool importing;
   final bool syncing;
+  final double syncProgress;
   final DateTime? latestUpdate;
   final int childAlbumCount;
   final int level;
+  final String? chatPreview;
+  final List<Map<String, dynamic>> members;
   final VoidCallback onBack;
   final VoidCallback onAddPhotos;
   final VoidCallback onSync;
+  final VoidCallback onShare;
+  final VoidCallback onChat;
   final VoidCallback? onCreateSubAlbum;
 
   const _AlbumHero({
@@ -378,14 +513,20 @@ class _AlbumHero extends StatelessWidget {
     required this.pendingCount,
     required this.syncedCount,
     required this.failedCount,
+    required this.isCloudSynced,
     required this.importing,
     required this.syncing,
+    this.syncProgress = 0,
     required this.latestUpdate,
     required this.childAlbumCount,
     required this.level,
+    this.chatPreview,
+    this.members = const [],
     required this.onBack,
     required this.onAddPhotos,
     required this.onSync,
+    required this.onShare,
+    required this.onChat,
     required this.onCreateSubAlbum,
   });
 
@@ -427,6 +568,15 @@ class _AlbumHero extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.70),
                       ),
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'This album is stored locally',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.58),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -454,52 +604,180 @@ class _AlbumHero extends StatelessWidget {
                 icon: Icons.folder_copy_outlined,
                 label: '$childAlbumCount sub-albums',
               ),
+              const _InfoChip(
+                icon: Icons.chat_bubble_outline,
+                label: 'Active chat',
+              ),
+              if (isCloudSynced)
+                const _InfoChip(
+                  icon: Icons.share_outlined,
+                  label: 'Shared album',
+                ),
               if (failedCount > 0)
                 _InfoChip(
                   icon: Icons.error_outline,
                   label: '$failedCount failed',
                   danger: true,
                 ),
+              _InfoChip(
+                icon: failedCount > 0
+                    ? Icons.warning_amber_rounded
+                    : (isCloudSynced ? Icons.cloud_done : Icons.cloud_download_outlined),
+                label: failedCount > 0
+                    ? '⚠ Sync issues'
+                    : (syncing
+                        ? '🔄 Syncing ${(syncProgress * 100).clamp(0, 100).round()}%'
+                        : (isCloudSynced ? '☁️ Synced' : '⬇ Not Synced')),
+                highlight: isCloudSynced && failedCount == 0,
+                danger: failedCount > 0,
+              ),
             ],
           ),
+          if (syncing && syncProgress > 0 && syncProgress < 1) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: syncProgress,
+                minHeight: 6,
+                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                color: const Color(0xFF6F5CF2),
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
+          if ((chatPreview ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                chatPreview!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          if ((chatPreview ?? '').isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                'No messages yet',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.58),
+                  fontSize: 12,
+                ),
+              ),
+            ),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
-              ElevatedButton.icon(
+              AppPrimaryButton(
                 onPressed: importing ? null : onAddPhotos,
-                icon: importing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.add_photo_alternate_outlined),
-                label: Text(importing ? 'Selecting...' : 'Add Photos'),
+                icon: Icons.add_photo_alternate_outlined,
+                text: importing ? 'Selecting...' : 'Add Photos',
+                isLoading: importing,
               ),
               if (onCreateSubAlbum != null)
-                OutlinedButton.icon(
+                AppSecondaryButton(
                   onPressed: onCreateSubAlbum,
-                  icon: const Icon(Icons.create_new_folder_outlined),
-                  label: const Text('Create Sub-Album'),
+                  icon: Icons.create_new_folder_outlined,
+                  text: 'Create Sub-Album',
                 ),
-              OutlinedButton.icon(
-                onPressed: (syncing || (pendingCount == 0 && failedCount == 0))
-                    ? null
-                    : onSync,
-                icon: syncing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.cloud_upload_outlined),
-                label: Text(syncing ? 'Syncing...' : 'Sync to Server'),
+              AppSecondaryButton(
+                onPressed: syncing ? null : onSync,
+                icon: Icons.cloud_outlined,
+                text: syncing ? 'Syncing…' : 'Sync to Cloud ☁️',
+              ),
+              AppSecondaryButton(
+                onPressed: onShare,
+                icon: Icons.ios_share_outlined,
+                text: 'Share',
+              ),
+              AppSecondaryButton(
+                onPressed: onChat,
+                icon: Icons.chat_bubble_outline,
+                text: 'Chat',
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.group_outlined, color: Colors.white70, size: 16),
+              const SizedBox(width: 8),
+              const Text(
+                'Members',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(width: 8),
+              ..._memberAvatars(),
+              const Spacer(),
+              AppSecondaryButton(
+                onPressed: onShare,
+                text: 'Invite',
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 2),
+            child: Text(
+              _socialProofText(),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.62),
+                fontSize: 11,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  String _socialProofText() {
+    final count = members.length <= 1 ? 1 : members.length;
+    if (count <= 3) return '$count people are viewing this memory';
+    return 'Shared with $count people';
+  }
+
+  List<Widget> _memberAvatars() {
+    final list = members;
+    if (list.isEmpty) return [_memberCircle('You')];
+    final visible = list.take(3).toList();
+    final extra = list.length - visible.length;
+    return [
+      ...visible.map((m) => _memberCircle((m['name'] ?? 'U').toString())),
+      if (extra > 0)
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Text(
+            '+$extra',
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+        ),
+    ];
+  }
+
+  Widget _memberCircle(String name) {
+    final initial = name.trim().isEmpty ? 'U' : name.trim()[0].toUpperCase();
+    return Container(
+      width: 22,
+      height: 22,
+      margin: const EdgeInsets.only(right: 4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: 0.12),
+      ),
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -598,15 +876,16 @@ class _AlbumEmptyState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          ElevatedButton.icon(
+          AppPrimaryButton(
             onPressed: onAddPhotos,
-            icon: const Icon(Icons.add_photo_alternate_outlined),
-            label: const Text('Add Images'),
+            icon: Icons.add_photo_alternate_outlined,
+            text: 'Add Images',
           ),
         ],
       ),
     );
   }
+
 }
 
 class _PhotoGrid extends StatelessWidget {
@@ -685,10 +964,10 @@ class _SubAlbumSection extends StatelessWidget {
                 ),
               ),
               if (canCreateSubAlbum)
-                OutlinedButton.icon(
+                AppSecondaryButton(
                   onPressed: onCreateSubAlbum,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Create Sub-Album'),
+                  icon: Icons.add,
+                  text: 'Create Sub-Album',
                 ),
             ],
           ),
@@ -816,8 +1095,21 @@ class _PhotoTile extends StatelessWidget {
                 thumbUrl: photo.thumbUrl,
                 localPath: photo.localPath,
                 localThumbnailPath: photo.localThumbnailPath,
+                memoryBytes: photo.bytes,
                 fit: BoxFit.cover,
               ),
+              if (_isVideoPath(photo.localPath, photo.originalFileName))
+                const Align(
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.play_circle_filled,
+                    color: Colors.white,
+                    size: 44,
+                    shadows: [
+                      Shadow(color: Colors.black54, blurRadius: 8),
+                    ],
+                  ),
+                ),
               Positioned(
                 left: 10,
                 right: 10,
@@ -858,6 +1150,21 @@ class _PhotoTile extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isVideoPath(String path, String? originalName) {
+  bool v(String s) {
+    final l = s.toLowerCase();
+    return l.endsWith('.mp4') ||
+        l.endsWith('.mov') ||
+        l.endsWith('.m4v') ||
+        l.endsWith('.webm') ||
+        l.endsWith('.mkv') ||
+        l.endsWith('.avi');
+  }
+
+  if (originalName != null && v(originalName)) return true;
+  return v(path);
 }
 
 class _SyncStatusPill extends StatelessWidget {
@@ -927,12 +1234,14 @@ class _TimelinePhotoViewer extends StatefulWidget {
   final List<Photo> photos;
   final int initialIndex;
   final ValueChanged<Photo> onPhotoUpdated;
+  final ValueChanged<Photo> onSetAsCover;
 
   const _TimelinePhotoViewer({
     required this.albumTitle,
     required this.photos,
     required this.initialIndex,
     required this.onPhotoUpdated,
+    required this.onSetAsCover,
   });
 
   @override
@@ -1023,6 +1332,7 @@ class _TimelinePhotoViewerState extends State<_TimelinePhotoViewer> {
                       thumbUrl: item.thumbUrl,
                       localPath: item.localPath,
                       localThumbnailPath: item.localThumbnailPath,
+                      memoryBytes: item.bytes,
                       fit: BoxFit.contain,
                     ),
                   ),
@@ -1122,6 +1432,14 @@ class _TimelinePhotoViewerState extends State<_TimelinePhotoViewer> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          IconButton(
+                            onPressed: () => widget.onSetAsCover(_currentPhoto),
+                            icon: const Icon(
+                              Icons.wallpaper_outlined,
+                              color: Colors.white,
+                            ),
+                            tooltip: 'Set as album cover',
+                          ),
                           IconButton(
                             onPressed: _openComments,
                             icon: const Icon(
@@ -1346,23 +1664,20 @@ class _PhotoCommentsSheetState extends State<_PhotoCommentsSheet> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: _submit,
-                      child: const Text('Send'),
-                    ),
+                    AppPrimaryButton(onPressed: _submit, text: 'Send'),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(
+                  child: AppSecondaryButton(
                     onPressed: () {
                       Navigator.pop(
                         context,
                         widget.photo.copyWith(comments: _comments),
                       );
                     },
-                    child: const Text('Done'),
+                    text: 'Done',
                   ),
                 ),
               ],

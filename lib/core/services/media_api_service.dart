@@ -156,6 +156,32 @@ class MediaApiService {
     throw Exception((data['message'] ?? 'Upload failed').toString());
   }
 
+  /// Explicit bytes entrypoint for web-safe upload flow.
+  static Future<Map<String, dynamic>> handleImageBytes({
+    required String albumId,
+    required Uint8List bytes,
+    required String name,
+  }) {
+    return uploadToAlbum(
+      albumId: albumId,
+      bytes: bytes,
+      fileName: name,
+      originalFileName: name,
+    );
+  }
+
+  /// Explicit file entrypoint for mobile/desktop upload flow.
+  static Future<Map<String, dynamic>> handleImageFile({
+    required String albumId,
+    required File file,
+  }) {
+    return uploadMedia(
+      albumId: albumId,
+      file: file,
+      type: 'image',
+    );
+  }
+
   static Map<String, dynamic> _safeJson(String body) {
     try {
       return (jsonDecode(body) as Map).cast<String, dynamic>();

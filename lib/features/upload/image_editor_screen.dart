@@ -7,22 +7,22 @@ class ImageEditorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MainAppShell(
+    return const MainAppShell(
       currentRoute: AppRoutes.dashboard,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Image Editor',
               style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 24),
-            const Expanded(
+            SizedBox(height: 24),
+            Expanded(
               child: Center(child: Icon(Icons.image, size: 96)),
             ),
           ],

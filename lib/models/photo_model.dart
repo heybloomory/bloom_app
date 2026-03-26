@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// Sync status for a locally stored photo.
 const Object _photoUnset = Object();
 
@@ -158,6 +160,10 @@ class Photo {
   final List<PhotoComment> comments;
   final List<PhotoFace> faces;
   final String? errorMessage;
+  final Uint8List? bytes;
+  /// Optional GPS (e.g. from EXIF); used for local smart tags when present.
+  final double? latitude;
+  final double? longitude;
 
   const Photo({
     required this.id,
@@ -175,6 +181,9 @@ class Photo {
     this.comments = const <PhotoComment>[],
     this.faces = const <PhotoFace>[],
     this.errorMessage,
+    this.bytes,
+    this.latitude,
+    this.longitude,
   });
 
   Map<String, dynamic> toMap() {
@@ -194,6 +203,9 @@ class Photo {
       'comments': comments.map((comment) => comment.toMap()).toList(),
       'faces': faces.map((face) => face.toMap()).toList(),
       'errorMessage': errorMessage,
+      'bytes': bytes,
+      'latitude': latitude,
+      'longitude': longitude,
     };
   }
 
@@ -231,6 +243,13 @@ class Photo {
           .map(PhotoFace.fromMap)
           .toList(),
       errorMessage: map['errorMessage']?.toString(),
+      bytes: map['bytes'] is Uint8List
+          ? map['bytes'] as Uint8List
+          : (map['bytes'] is List
+              ? Uint8List.fromList((map['bytes'] as List).cast<int>())
+              : null),
+      latitude: (map['latitude'] as num?)?.toDouble(),
+      longitude: (map['longitude'] as num?)?.toDouble(),
     );
   }
 
@@ -250,6 +269,9 @@ class Photo {
     List<PhotoComment>? comments,
     List<PhotoFace>? faces,
     Object? errorMessage = _photoUnset,
+    Object? bytes = _photoUnset,
+    Object? latitude = _photoUnset,
+    Object? longitude = _photoUnset,
   }) {
     return Photo(
       id: id ?? this.id,
@@ -279,6 +301,13 @@ class Photo {
       errorMessage: identical(errorMessage, _photoUnset)
           ? this.errorMessage
           : errorMessage as String?,
+      bytes: identical(bytes, _photoUnset) ? this.bytes : bytes as Uint8List?,
+      latitude: identical(latitude, _photoUnset)
+          ? this.latitude
+          : latitude as double?,
+      longitude: identical(longitude, _photoUnset)
+          ? this.longitude
+          : longitude as double?,
     );
   }
 }

@@ -41,6 +41,7 @@ class LocalAlbumMediaImportService {
         albumId: albumId,
         localPath: 'web_${DateTime.now().millisecondsSinceEpoch}_${item.name}',
         sourceId: item.sourceId,
+        bytes: item.bytes,
         createdAt: item.selectedAt,
       );
       addedCount += 1;

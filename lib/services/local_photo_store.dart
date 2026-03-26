@@ -246,6 +246,7 @@ class LocalPhotoStore {
     String? originalFileName,
     String? sourceId,
     String? localThumbnailPath,
+    Uint8List? bytes,
     DateTime? createdAt,
   }) {
     _ensureInitialized();
@@ -269,10 +270,12 @@ class LocalPhotoStore {
           : originalFileName?.trim(),
       sourceId: sourceId,
       localThumbnailPath: localThumbnailPath,
+      bytes: bytes,
       syncStatus: PhotoSyncStatus.localOnly,
       createdAt: effectiveCreatedAt,
     );
     _photosBox!.put(photo.id, photo.toMap());
+    _ensureAlbumCover(albumId, preferredPhoto: photo);
     touchAlbum(albumId, at: effectiveCreatedAt);
     return photo;
   }
@@ -305,8 +308,74 @@ class LocalPhotoStore {
     final photo = getPhoto(photoId);
     _photosBox!.delete(photoId);
     if (photo != null) {
+      _ensureAlbumCover(photo.albumId);
       touchAlbum(photo.albumId);
     }
+  }
+
+  static void setAlbumCover({
+    required String albumId,
+    required Photo photo,
+  }) {
+    final album = getAlbum(albumId);
+    if (album == null) return;
+    final updated = album.copyWith(
+      coverPhotoId: photo.id,
+      coverBytes: kIsWeb ? photo.bytes : null,
+      coverPath: (photo.localThumbnailPath ?? photo.localPath).trim().isEmpty
+          ? null
+          : (photo.localThumbnailPath ?? photo.localPath),
+      updatedAt: DateTime.now(),
+    );
+    updateAlbum(updated);
+  }
+
+  static void ensureAlbumCover(String albumId) {
+    _ensureAlbumCover(albumId);
+  }
+
+  static void _ensureAlbumCover(String albumId, {Photo? preferredPhoto}) {
+    final album = getAlbum(albumId);
+    if (album == null) return;
+    final photos = listPhotosInAlbum(albumId);
+    if (photos.isEmpty) {
+      if (album.coverPhotoId != null ||
+          album.coverBytes != null ||
+          (album.coverPath ?? '').isNotEmpty) {
+        updateAlbum(album.copyWith(
+          coverPhotoId: null,
+          coverBytes: null,
+          coverPath: null,
+        ));
+      }
+      return;
+    }
+
+    Photo? selected;
+    final currentId = (album.coverPhotoId ?? '').trim();
+    if (currentId.isNotEmpty) {
+      for (final p in photos) {
+        if (p.id == currentId) {
+          selected = p;
+          break;
+        }
+      }
+    }
+    selected ??= preferredPhoto ?? photos.first;
+
+    final nextPath = (selected.localThumbnailPath ?? selected.localPath).trim();
+    final needsUpdate = album.coverPhotoId != selected.id ||
+        (kIsWeb && selected.bytes != null && album.coverBytes == null) ||
+        (!kIsWeb && nextPath.isNotEmpty && (album.coverPath ?? '') != nextPath);
+
+    if (!needsUpdate) return;
+    updateAlbum(
+      album.copyWith(
+        coverPhotoId: selected.id,
+        coverBytes: kIsWeb ? selected.bytes : null,
+        coverPath: nextPath.isEmpty ? null : nextPath,
+      ),
+    );
   }
 
   static Photo? findPhotoInAlbum({
@@ -332,6 +401,25 @@ class LocalPhotoStore {
       }
     }
     return null;
+  }
+
+  /// All photos across every album (newest first). Used by Smart Media Engine ingestion only.
+  static List<Photo> listAllPhotos() {
+    _ensureInitialized();
+    final box = _photosBox!;
+    final list = <Photo>[];
+    for (final key in box.keys) {
+      final v = box.get(key);
+      if (v is Map) {
+        try {
+          list.add(Photo.fromMap(v));
+        } catch (e, st) {
+          debugPrint('[LocalPhotoStore] skip corrupt photo $key: $e\n$st');
+        }
+      }
+    }
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
   }
 
   // --- Face metadata ---

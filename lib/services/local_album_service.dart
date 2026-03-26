@@ -34,6 +34,9 @@ class LocalAlbumService {
       return <TimelineAlbumSummary>[];
     }
     try {
+      for (final album in albums) {
+        LocalPhotoStore.ensureAlbumCover(album.id);
+      }
       return albums
           .map(
             (album) => TimelineAlbumSummary(
