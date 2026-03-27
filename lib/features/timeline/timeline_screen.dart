@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/widgets/app_buttons.dart';
 import '../../core/widgets/glass_container.dart';
 import '../../core/services/offer_service.dart';
-import '../../core/services/user_api_service.dart';
 import '../../layout/main_app_shell.dart';
 import '../../models/photo_model.dart';
 import '../../models/smart_media_models.dart';
@@ -20,6 +19,7 @@ import '../../services/local_smart_search.dart';
 import '../../services/sync/sync_queue_service.dart';
 import '../../services/personalization_service.dart';
 import '../../services/api_service.dart';
+import '../../services/auth_service.dart';
 import '../import/import_studio_screen.dart';
 import 'timeline_smart_viewer.dart';
 import 'timeline_photo_image.dart';
@@ -53,6 +53,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
   List<PersonalizedRecommendation> _recommendations =
       <PersonalizedRecommendation>[];
   DateTime? _importHeaderUntil;
+  String? _cachedUserName;
   static const _lastImportPhotoIdsKey = 'last_import_photo_ids_v1';
   static const _lastImportAlbumIdsKey = 'last_import_album_ids_v1';
   static const _lastImportAtKey = 'last_import_at_v1';
@@ -95,19 +96,10 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   Future<void> _startTimelineFlow() async {
-    try {
-      final completed = await UserApiService.isProfileCompleted();
-      if (!mounted) return;
-      if (!completed) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.profileCompletion,
-          (_) => false,
-        );
-        return;
-      }
-    } catch (_) {
-      // If check fails, allow timeline; profile screen can still be opened manually.
+    final user = await AuthService.getUser() ?? <String, dynamic>{};
+    final savedName = (user['name'] ?? '').toString().trim();
+    if (savedName.isNotEmpty) {
+      _safeSetState(() => _cachedUserName = savedName);
     }
     await _loadTimeline();
     await _loadOffer();
@@ -116,14 +108,36 @@ class _TimelineScreenState extends State<TimelineScreen> {
   }
 
   Future<void> _loadOffer() async {
-    if (_offerShownThisSession) return;
+    print("📦 CHECKING OFFER POPUP");
+    if (_offerShownThisSession) {
+      print("🚫 POPUP SKIPPED (ALREADY SHOWN THIS SESSION)");
+      return;
+    }
+    final user = await AuthService.getUser() ?? <String, dynamic>{};
+    print("USER: $user");
+    print("PROFILE COMPLETED: ${user['profileCompleted']}");
+    if (user['profileCompleted'] != true) {
+      print("🚫 POPUP SKIPPED (PROFILE NOT COMPLETED)");
+      return;
+    }
+    final seen = await AuthService.getOfferPopupSeenRaw();
+    print("POPUP SEEN: $seen");
+    if (seen == "true") {
+      print("🚫 POPUP SKIPPED (ALREADY SEEN)");
+      return;
+    }
     final offer = await OfferService.getTimelineOffer();
+    if (offer == null) {
+      print("🚫 POPUP SKIPPED (NO OFFER AVAILABLE)");
+    }
     if (!mounted) return;
     setState(() {
       _offer = offer;
       _offerShownThisSession = offer != null;
     });
     if (offer != null) {
+      print("🎉 SHOWING OFFER POPUP");
+      await AuthService.markOfferPopupSeen();
       await AnalyticsService.logEvent('banner_viewed', params: {
         'title': offer.title,
       });
@@ -322,7 +336,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
     final mediaCount = _result.media.length;
     // Keep computed counts for hero and empty-state.
     final user = FirebaseAuth.instance.currentUser;
-    final nameRaw = (user?.displayName ?? '').trim();
+    final nameRaw = (_cachedUserName ?? user?.displayName ?? '').trim();
     final fallback = (user?.email ?? 'there').split('@').first;
     final displayName = nameRaw.isNotEmpty ? nameRaw : fallback;
     final now = DateTime.now();

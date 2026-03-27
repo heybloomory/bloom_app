@@ -61,7 +61,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (nextName == null || nextName.isEmpty) return;
     try {
       await user?.updateDisplayName(nextName.trim());
-      await UserApiService.updateMe(name: nextName.trim());
+      await UserApiService.updateMe(<String, dynamic>{'name': nextName.trim()});
       await FirebaseAuth.instance.currentUser?.reload();
       if (!mounted) return;
       setState(() {});

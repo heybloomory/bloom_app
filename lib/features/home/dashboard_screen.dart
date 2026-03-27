@@ -9,6 +9,7 @@ import '../../layout/main_app_shell.dart';
 import '../../routes/app_routes.dart';
 import '../../core/widgets/glass_container.dart';
 import '../../core/services/album_api_service.dart';
+import '../../services/auth_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -26,9 +27,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    print("🏠 DASHBOARD LOADED");
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _logCurrentUser();
       _startHeavyWork();
     });
+  }
+
+  Future<void> _logCurrentUser() async {
+    print("CURRENT USER: ${await AuthService.getUser()}");
   }
 
   /// After first frame: optional API mirror (does not block initial paint).

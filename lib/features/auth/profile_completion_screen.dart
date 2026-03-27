@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
 
@@ -7,6 +6,7 @@ import '../../core/services/user_api_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 import '../../services/analytics_service.dart';
+import '../../services/auth_service.dart';
 
 class ProfileCompletionScreen extends StatefulWidget {
   const ProfileCompletionScreen({super.key});
@@ -22,6 +22,7 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
   @override
   void initState() {
     super.initState();
+    print("👤 PROFILE SCREEN LOADED");
     AnalyticsService.logEvent('profile_started');
   }
 
@@ -36,11 +37,32 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
     if (name.isEmpty || _saving) return;
     try {
       setState(() => _saving = true);
-      debugPrint('[profile] continue tapped name=$name');
-      await UserApiService.completeProfile(name: name);
+      print("Sending name: $name");
+      print("🚀 Sending payload: ${{
+        "name": name,
+        "profileCompleted": true,
+      }}");
+      print("🚀 Token: ${await AuthService.getToken()}");
+      final response = await UserApiService.updateMe({
+        "name": name,
+        "profileCompleted": true,
+      });
+      final updatedUser = response["user"] as Map<String, dynamic>? ?? <String, dynamic>{};
+      print("✅ Updated user: $updatedUser");
+      await AuthService.setUser(updatedUser);
+      await AuthService.resetOfferPopupSeen();
+      final savedUser = await AuthService.getUser();
+      print("🔥 FINAL SAVED USER: $savedUser");
+      print("USER AFTER SAVE: ${await AuthService.getUser()}");
+      final user = await AuthService.getUser() ?? <String, dynamic>{};
+      print("PROFILE COMPLETED: ${user["profileCompleted"]}");
       await AnalyticsService.logEvent('profile_completed');
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.dashboard, (_) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.dashboard,
+        (route) => false,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

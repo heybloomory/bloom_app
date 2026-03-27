@@ -42,20 +42,13 @@ class UserApiService {
     }
   }
 
-  static Future<void> updateMe({
-    String? name,
-    bool? profileCompleted,
-  }) async {
+  static Future<Map<String, dynamic>> updateMe(Map<String, dynamic> body) async {
     final token = await AuthSession.getToken();
     if (token == null || token.trim().isEmpty) {
       throw Exception('Not authenticated with backend.');
     }
 
-    final response = await ApiService.patch('/api/users/me', {
-      if (name != null) 'name': name.trim(),
-      if (profileCompleted != null) 'profileCompleted': profileCompleted,
-    });
-
+    final response = await ApiService.patch('/api/users/me', body);
     final data = _safeJson(response.body);
     if ((response.statusCode == 200 || response.statusCode == 201) &&
         data['success'] == true) {
@@ -63,17 +56,9 @@ class UserApiService {
       if (user is Map<String, dynamic>) {
         _cachedUser = user;
       }
-      return;
+      return data;
     }
-
     throw Exception((data['message'] ?? 'Could not update profile').toString());
-  }
-
-  static Future<void> completeProfile({required String name}) async {
-    debugPrint('[profile] completeProfile:start name=$name');
-    await updateMe(name: name, profileCompleted: true);
-    final me = await getMe();
-    debugPrint('[profile] completeProfile:done profileCompleted=${me['profileCompleted']} name=${me['name']}');
   }
 
   static Map<String, dynamic> _safeJson(String body) {

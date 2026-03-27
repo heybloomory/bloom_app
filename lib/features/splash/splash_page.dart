@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../../core/services/auth_session.dart';
-import '../../core/services/user_api_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../routes/app_routes.dart';
 import '../../services/analytics_service.dart';
@@ -16,6 +13,18 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> {
+  void _goLogin() {
+    Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+  }
+
+  void _goDashboard() {
+    Navigator.of(context).pushReplacementNamed(AppRoutes.dashboard);
+  }
+
+  void _goProfile() {
+    Navigator.of(context).pushReplacementNamed(AppRoutes.profileCompletion);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -26,20 +35,43 @@ class _SplashPageState extends State<SplashPage> {
     await AnalyticsService.logEvent('app_open');
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
-    final validSession = await AuthService.validateSession();
-    if (!mounted) return;
-    if (!validSession) {
-      await AuthSession.clear();
+    print("🔵 SPLASH START");
+
+    final token = await AuthService.getToken();
+    print("🔵 TOKEN: $token");
+    if (token == null || token.trim().isEmpty) {
+      print("🔴 ROUTE -> LOGIN (NO TOKEN)");
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      _goLogin();
       return;
     }
-    final completed = await UserApiService.isProfileCompleted();
-    debugPrint('[profile] splash route completed=$completed');
+
+    final isExpired = AuthService.isTokenExpired(token);
+    if (isExpired) {
+      print("🔴 ROUTE -> LOGIN (TOKEN EXPIRED)");
+      await AuthService.logout();
+      if (!mounted) return;
+      _goLogin();
+      return;
+    }
+
+    final user = await AuthService.getUser();
+    final completed = user?["profileCompleted"] == true;
+    print("🟢 FINAL USER: $user");
+    print("🟢 PROFILE COMPLETED: ${user?["profileCompleted"]}");
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(
-      completed ? AppRoutes.dashboard : AppRoutes.profileCompletion,
-    );
+    if (user == null) {
+      print("🔴 ROUTE -> LOGIN (NO USER)");
+      _goLogin();
+      return;
+    }
+    if (completed) {
+      print("🟢 ROUTE -> DASHBOARD");
+      _goDashboard();
+      return;
+    }
+    print("🟡 ROUTE -> PROFILE COMPLETION");
+    _goProfile();
   }
 
   @override
